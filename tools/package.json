@@ -1,0 +1,13 @@
+{
+  "name": "refiner-ui-tools",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Static analysis tools for refiner-ui/index.html",
+  "scripts": {
+    "check": "node check.mjs"
+  },
+  "dependencies": {
+    "acorn": "^8.12.0"
+  }
+}

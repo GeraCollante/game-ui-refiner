@@ -1,0 +1,33 @@
+# Runtime artifacts
+runs/
+.env
+.env.local
+.env.*.local
+*.log
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build artifacts (we COMMIT js/ on purpose so users can run without npm install,
+# but ignore the temp tsbuildinfo)
+*.tsbuildinfo

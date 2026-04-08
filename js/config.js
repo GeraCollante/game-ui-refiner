@@ -1,0 +1,150 @@
+/**
+ * Model catalog, dropdown options, presets, and provider helpers.
+ */
+// =====================================================================
+// Model catalog with pricing per provider
+// =====================================================================
+export const MODELS_BY_PROVIDER = {
+    google: {
+        // Gemini 3.x family (preview, top tier)
+        'gemini-3.1-pro-preview': { in: 2.00, out: 12.00, vision: true, label: 'Gemini 3.1 Pro Preview' },
+        'gemini-3.1-flash-lite-preview': { in: 0.25, out: 1.50, vision: true, label: 'Gemini 3.1 Flash-Lite Preview' },
+        'gemini-3-pro-preview': { in: 2.00, out: 12.00, vision: true, label: 'Gemini 3 Pro Preview' },
+        'gemini-3-flash-preview': { in: 0.50, out: 3.00, vision: true, label: 'Gemini 3 Flash Preview' },
+        // Latest aliases (auto-update)
+        'gemini-pro-latest': { in: 2.00, out: 12.00, vision: true, label: 'Gemini Pro :latest' },
+        'gemini-flash-latest': { in: 0.50, out: 3.00, vision: true, label: 'Gemini Flash :latest' },
+        'gemini-flash-lite-latest': { in: 0.25, out: 1.50, vision: true, label: 'Gemini Flash-Lite :latest' },
+        // Gemini 2.5 family (stable, generous free tier)
+        'gemini-2.5-pro': { in: 1.25, out: 10.00, vision: true, label: 'Gemini 2.5 Pro' },
+        'gemini-2.5-flash': { in: 0.30, out: 2.50, vision: true, label: 'Gemini 2.5 Flash' },
+        'gemini-2.5-flash-lite': { in: 0.10, out: 0.40, vision: true, label: 'Gemini 2.5 Flash-Lite' },
+        // Gemini 2.0 (fallback)
+        'gemini-2.0-flash': { in: 0.10, out: 0.40, vision: true, label: 'Gemini 2.0 Flash' },
+        'gemini-2.0-flash-lite': { in: 0.075, out: 0.30, vision: true, label: 'Gemini 2.0 Flash-Lite' },
+    },
+    openrouter: {
+        'google/gemini-3-flash-preview': { in: 0.50, out: 3.00, vision: true, label: 'Gemini 3 Flash' },
+        'google/gemini-3.1-pro-preview': { in: 2.00, out: 12.00, vision: true, label: 'Gemini 3.1 Pro Preview' },
+        'google/gemini-3.1-flash-lite-preview': { in: 0.25, out: 1.50, vision: true, label: 'Gemini 3.1 Flash-Lite' },
+        'google/gemini-2.5-pro': { in: 1.25, out: 10.00, vision: true, label: 'Gemini 2.5 Pro' },
+        'google/gemini-2.5-flash': { in: 0.30, out: 2.50, vision: true, label: 'Gemini 2.5 Flash' },
+        'openai/gpt-5.4': { in: 2.50, out: 15.00, vision: true, label: 'GPT-5.4' },
+        'openai/gpt-5.4-mini': { in: 0.75, out: 4.50, vision: true, label: 'GPT-5.4 mini' },
+        'openai/gpt-5': { in: 1.25, out: 10.00, vision: true, label: 'GPT-5' },
+        'anthropic/claude-sonnet-4.6': { in: 3.00, out: 15.00, vision: true, label: 'Claude Sonnet 4.6' },
+        'anthropic/claude-opus-4.6': { in: 5.00, out: 25.00, vision: true, label: 'Claude Opus 4.6' },
+        'anthropic/claude-haiku-4.5': { in: 1.00, out: 5.00, vision: true, label: 'Claude Haiku 4.5' },
+        'x-ai/grok-4.20': { in: 2.00, out: 6.00, vision: true, label: 'Grok 4.20 (2M ctx)' },
+        'x-ai/grok-4.20-multi-agent': { in: 2.00, out: 6.00, vision: true, label: 'Grok 4.20 multi-agent' },
+        'x-ai/grok-4-fast': { in: 0.20, out: 0.50, vision: true, label: 'Grok 4 Fast' },
+        'x-ai/grok-4': { in: 3.00, out: 15.00, vision: true, label: 'Grok 4' },
+        'qwen/qwen3.5-397b-a17b': { in: 0.39, out: 2.34, vision: true, label: 'Qwen 3.5 397B' },
+        'moonshotai/kimi-k2.5': { in: 0.38, out: 1.72, vision: true, label: 'Kimi K2.5' },
+        'nvidia/nemotron-nano-12b-v2-vl': { in: 0.20, out: 0.60, vision: true, label: 'Nemotron Nano 12B VL' },
+        'nvidia/nemotron-nano-12b-v2-vl:free': { in: 0, out: 0, vision: true, label: 'Nemotron Nano VL :free' },
+        'nvidia/nemotron-3-super-120b-a12b': { in: 0.10, out: 0.50, vision: false, label: 'Nemotron 3 Super (text)' },
+        'nvidia/nemotron-3-super-120b-a12b:free': { in: 0, out: 0, vision: false, label: 'Nemotron 3 Super :free' },
+        'meta-llama/llama-4-maverick': { in: 0.15, out: 0.60, vision: true, label: 'Llama 4 Maverick' },
+    },
+};
+// =====================================================================
+// Curated dropdown subsets per provider
+// =====================================================================
+export const OPTIONS_BY_PROVIDER = {
+    google: {
+        critic: [
+            'gemini-3.1-flash-lite-preview', 'gemini-3-flash-preview',
+            'gemini-3.1-pro-preview', 'gemini-3-pro-preview',
+            'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro',
+            'gemini-flash-latest', 'gemini-flash-lite-latest',
+            'gemini-2.0-flash', 'gemini-2.0-flash-lite',
+        ],
+        gen: [
+            'gemini-3.1-pro-preview', 'gemini-3-pro-preview',
+            'gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview',
+            'gemini-2.5-pro', 'gemini-2.5-flash',
+            'gemini-pro-latest', 'gemini-flash-latest',
+            'gemini-2.0-flash',
+        ],
+    },
+    openrouter: {
+        critic: [
+            'google/gemini-3-flash-preview', 'google/gemini-3.1-pro-preview', 'google/gemini-3.1-flash-lite-preview',
+            'google/gemini-2.5-pro', 'google/gemini-2.5-flash',
+            'openai/gpt-5.4', 'openai/gpt-5.4-mini',
+            'anthropic/claude-sonnet-4.6', 'anthropic/claude-opus-4.6',
+            'x-ai/grok-4-fast', 'x-ai/grok-4.20', 'x-ai/grok-4',
+            'qwen/qwen3.5-397b-a17b', 'moonshotai/kimi-k2.5',
+            'nvidia/nemotron-nano-12b-v2-vl', 'nvidia/nemotron-nano-12b-v2-vl:free',
+        ],
+        gen: [
+            'google/gemini-3.1-pro-preview', 'google/gemini-3-flash-preview',
+            'openai/gpt-5.4', 'openai/gpt-5.4-mini',
+            'anthropic/claude-sonnet-4.6', 'anthropic/claude-opus-4.6',
+            'x-ai/grok-4.20', 'x-ai/grok-4', 'x-ai/grok-4.20-multi-agent',
+            'qwen/qwen3.5-397b-a17b', 'moonshotai/kimi-k2.5',
+            'nvidia/nemotron-3-super-120b-a12b', 'nvidia/nemotron-3-super-120b-a12b:free',
+        ],
+    },
+};
+// =====================================================================
+// Presets — quick-pick pairs of (critic, generator) per provider
+// =====================================================================
+export const PRESETS_BY_PROVIDER = {
+    google: {
+        smart: { critic: 'gemini-3.1-flash-lite-preview', gen: 'gemini-3.1-pro-preview' },
+        smart3: { critic: 'gemini-3-flash-preview', gen: 'gemini-3.1-pro-preview' },
+        speed: { critic: 'gemini-3.1-flash-lite-preview', gen: 'gemini-3-flash-preview' },
+        premium: { critic: 'gemini-3.1-pro-preview', gen: 'gemini-3.1-pro-preview' },
+        stable: { critic: 'gemini-2.5-flash', gen: 'gemini-2.5-pro' },
+        free: { critic: 'gemini-2.5-flash', gen: 'gemini-2.5-flash' },
+    },
+    openrouter: {
+        smart: { critic: 'google/gemini-3.1-flash-lite-preview', gen: 'google/gemini-3.1-pro-preview' },
+        smart3: { critic: 'google/gemini-3-flash-preview', gen: 'google/gemini-3.1-pro-preview' },
+        speed: { critic: 'google/gemini-3.1-flash-lite-preview', gen: 'openai/gpt-5.4-mini' },
+        premium: { critic: 'google/gemini-3.1-pro-preview', gen: 'openai/gpt-5.4' },
+        anthropic: { critic: 'google/gemini-3.1-flash-lite-preview', gen: 'anthropic/claude-sonnet-4.6' },
+        grok: { critic: 'x-ai/grok-4-fast', gen: 'x-ai/grok-4.20' },
+        grokfull: { critic: 'x-ai/grok-4.20', gen: 'x-ai/grok-4' },
+        free: { critic: 'nvidia/nemotron-nano-12b-v2-vl:free', gen: 'nvidia/nemotron-3-super-120b-a12b:free' },
+    },
+};
+export const PRESET_LABELS = {
+    smart: '🥇 Smart (3.1 Flash-Lite + 3.1 Pro)',
+    smart3: '🥈 Smart-3 (3 Flash + 3.1 Pro)',
+    speed: '⚡ Speed',
+    premium: '👑 Premium',
+    stable: '🪨 Stable (Gemini 2.5)',
+    anthropic: '🅰️ Anthropic',
+    grok: '🤖 Grok (4 Fast + 4.20)',
+    grokfull: '🤖 Grok Full (4.20 + 4)',
+    free: '🆓 Free',
+    cheapest: '🪙 Cheapest',
+};
+/** Per-dimension chart colors. */
+export const DIM_COLORS = {
+    structural_fidelity: { c: '#f87171', short: 'struc' },
+    color_consistency: { c: '#60a5fa', short: 'color' },
+    typography: { c: '#4ade80', short: 'type' },
+    spacing_alignment: { c: '#facc15', short: 'space' },
+    visual_completeness: { c: '#c084fc', short: 'compl' },
+};
+// =====================================================================
+// Provider helpers (read DOM at call time for live state)
+// =====================================================================
+export function currentProvider() {
+    return document.getElementById('provider').value;
+}
+export function getModels() {
+    return MODELS_BY_PROVIDER[currentProvider()];
+}
+export function getModelInfo(id) {
+    return getModels()[id];
+}
+export function getCurrentApiKey() {
+    const provider = currentProvider();
+    const id = provider === 'google' ? 'googleKey' : 'apiKey';
+    return document.getElementById(id).value.trim();
+}

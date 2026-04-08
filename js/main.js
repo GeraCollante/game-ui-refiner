@@ -6,7 +6,7 @@ import { state } from './state.js';
 import { extractJson, parseDecomposeJson, parseDualOutput, stripFences } from './parser.js';
 import { buildCriticMessages, buildFeedbackMessages, buildInitialDecomposeMessages, buildInitialGenMessages, buildRefineDecomposeMessages, buildRefineMessages, callModel, callModelForced, renderInIframe, screenshotIframe, } from './api.js';
 import { compileLayersToSvelte } from './decompose.js';
-import { $, addHistoryThumb, applyPreset, drawChart, log, refreshProviderUI, refreshPromptsPane, resetMeters, saveImage, saveText, setLoading, setStatus, setTab, startSession, startTicker, stopTicker, updateCodePanes, updateLayersPane, } from './ui.js';
+import { $, addHistoryThumb, applyPreset, drawChart, exportAllToFile, log, refreshProviderUI, refreshPromptsPane, resetMeters, saveImage, saveText, setLoading, setStatus, setTab, startSession, startTicker, stopTicker, updateCodePanes, updateLayersPane, } from './ui.js';
 // =====================================================================
 // Cached element refs
 // =====================================================================
@@ -406,6 +406,9 @@ async function runRefinement() {
         stopBtn.disabled = true;
         epochBadge.classList.add('hidden');
         $('feedbackBtn').disabled = !(state.currentSvelte || state.currentCode);
+        const exBtn = $('exportAllBtn');
+        if (exBtn)
+            exBtn.disabled = !(state.currentSvelte || state.currentCode);
     }
 }
 // =====================================================================
@@ -507,3 +510,7 @@ stopBtn.addEventListener('click', () => {
     setStatus('Deteniendo...');
 });
 $('feedbackBtn').addEventListener('click', runFeedbackEpoch);
+const exportBtn = $('exportAllBtn');
+if (exportBtn) {
+    exportBtn.addEventListener('click', exportAllToFile);
+}

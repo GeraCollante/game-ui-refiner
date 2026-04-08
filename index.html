@@ -88,6 +88,11 @@
         <input id="saveToggle" type="checkbox" checked class="accent-amber-500" />
         <span>Guardar a <code class="text-amber-400">runs/&lt;session&gt;/</code></span>
       </label>
+      <button id="exportAllBtn" disabled
+              title="Descarga un .md con TODO (target, código, layers, critiques, prompts) listo para pegar en otra LLM"
+              class="w-full mt-1 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded py-1.5 text-xs transition">
+        📦 Export ALL → LLM-ready .md
+      </button>
     </div>
 
     <div id="sessionPanel" class="bg-neutral-900 border border-neutral-800 rounded-lg p-3 hidden">

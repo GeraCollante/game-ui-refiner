@@ -29,6 +29,7 @@ import {
   addHistoryThumb,
   applyPreset,
   drawChart,
+  exportAllToFile,
   log,
   refreshProviderUI,
   refreshPromptsPane,
@@ -484,6 +485,8 @@ async function runRefinement(): Promise<void> {
     stopBtn.disabled = true;
     epochBadge.classList.add('hidden');
     ($('feedbackBtn') as HTMLButtonElement).disabled = !(state.currentSvelte || state.currentCode);
+    const exBtn = $('exportAllBtn') as HTMLButtonElement | null;
+    if (exBtn) exBtn.disabled = !(state.currentSvelte || state.currentCode);
   }
 }
 
@@ -606,3 +609,8 @@ stopBtn.addEventListener('click', () => {
   setStatus('Deteniendo...');
 });
 ($('feedbackBtn') as HTMLButtonElement).addEventListener('click', runFeedbackEpoch);
+
+const exportBtn = $('exportAllBtn') as HTMLButtonElement | null;
+if (exportBtn) {
+  exportBtn.addEventListener('click', exportAllToFile);
+}

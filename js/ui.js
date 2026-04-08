@@ -3,7 +3,7 @@
  * dropdowns, prompt panel, etc. Everything that touches the DOM beyond
  * the screenshot/render helpers in api.ts.
  */
-import { currentProvider, getModels, OPTIONS_BY_PROVIDER, PRESETS_BY_PROVIDER, PRESET_LABELS, DIM_COLORS, } from './config.js';
+import { currentProvider, getModels, OPTIONS_BY_PROVIDER, PRESETS_BY_PROVIDER, PRESET_LABELS, DIM_COLORS, DECOMPOSE_DIM, } from './config.js';
 import { state, MAX_LOG_ENTRIES, MAX_HISTORY_THUMBS } from './state.js';
 import { parseSvelteParts, clamp01_10 } from './parser.js';
 // =====================================================================
@@ -108,7 +108,7 @@ export function setTab(name) {
     });
     document.querySelectorAll('.tab-pane').forEach((pane) => pane.classList.add('hidden'));
     $('pane' + name.charAt(0).toUpperCase() + name.slice(1)).classList.remove('hidden');
-    $('copyBtn').classList.toggle('hidden', !['svelte', 'css', 'js', 'html', 'prompts'].includes(name));
+    $('copyBtn').classList.toggle('hidden', !['svelte', 'css', 'js', 'html', 'prompts', 'layers'].includes(name));
     $('downloadLogs').classList.toggle('hidden', name !== 'logs');
     if (name === 'prompts' && state.promptsDirty) {
         refreshPromptsPane(true);
@@ -125,6 +125,26 @@ export function updateCodePanes(svelte, html) {
     $('paneHtml').textContent = html || '— vacío —';
     $('paneCss').textContent = state.currentCss || '— sin <style> en el svelte —';
     $('paneJs').textContent = state.currentJs || '— sin <script> en el svelte —';
+}
+// =====================================================================
+// Layers pane (decompose mode)
+// =====================================================================
+/** Render the current decompose JSON into the editable textarea. */
+export function updateLayersPane(d) {
+    const ta = document.getElementById('layersJsonEditor');
+    const meta = document.getElementById('layersMeta');
+    if (!ta)
+        return;
+    if (!d) {
+        ta.value = '';
+        if (meta)
+            meta.textContent = '— sin decomposición todavía —';
+        return;
+    }
+    ta.value = JSON.stringify(d, null, 2);
+    if (meta) {
+        meta.textContent = `${d.layers.length} layers · ${d.states.length} states · ${(d.width || 220)}×${(d.height || 72)}`;
+    }
 }
 // =====================================================================
 // Prompts pane (lazy DOM rebuild — only when activeTab === 'prompts')
@@ -249,9 +269,12 @@ export function drawChart() {
     for (let i = 0; i < n; i++) {
         svg.insertAdjacentHTML('beforeend', `<text x="${xFor(i)}" y="${H - 8}" fill="#737373" font-size="9" text-anchor="middle" font-family="monospace">e${i + 1}</text>`);
     }
-    // Plot each dimension
+    // Plot each dimension (5 holistic + 1 extra in decompose mode)
+    const dimsToPlot = { ...DIM_COLORS };
+    if (state.mode === 'decompose')
+        Object.assign(dimsToPlot, DECOMPOSE_DIM);
     let legendIdx = 0;
-    for (const [dim, info] of Object.entries(DIM_COLORS)) {
+    for (const [dim, info] of Object.entries(dimsToPlot)) {
         const color = info.c;
         const segs = [];
         let cur = [];
@@ -419,6 +442,8 @@ export function resetMeters() {
     $('panePrompts').textContent = '— sin prompts todavía —';
     $('paneLogs').innerHTML = '';
     $('critiqueOverall').textContent = '';
+    state.currentDecompose = null;
+    updateLayersPane(null);
 }
 // =====================================================================
 // Save to disk via /save endpoint of serve.py
@@ -463,6 +488,174 @@ export async function saveImage(filename, dataUrl) {
 }
 export async function saveText(filename, text) {
     return saveToServer(filename, { text: text || '' });
+}
+// =====================================================================
+// Export ALL — single self-contained markdown bundle for LLM consumption
+// =====================================================================
+/**
+ * Build a markdown document containing everything an LLM needs to
+ * re-implement / continue the work: target image (inlined as data URL),
+ * mode, model lineup, final code (svelte/html/css/js or layers JSON),
+ * full score history, last critique, last prompts, manual feedback.
+ *
+ * Optimized for LLM consumption: single file, no externals, fenced blocks
+ * with explicit language labels, headers in a logical order.
+ */
+export function buildExportMarkdown() {
+    const lines = [];
+    const provider = currentProvider();
+    const critic = document.getElementById('criticModel')?.value || '?';
+    const gen = document.getElementById('genModel')?.value || '?';
+    const mode = state.mode;
+    const session = state.currentSession || '(no session)';
+    const epochsRun = state.scoreHistory.length;
+    const lastCritique = $('paneCritique').textContent || '';
+    const lastOverall = state.scoreHistory[state.scoreHistory.length - 1]?.overall;
+    lines.push(`# game-ui-refiner export — session \`${session}\``);
+    lines.push('');
+    lines.push(`> Generated by [game-ui-refiner](https://github.com/GeraCollante/game-ui-refiner). Paste this entire file into another LLM (Claude, GPT, Gemini) to continue iterating, integrate the result into a project, or ask for variations.`);
+    lines.push('');
+    lines.push(`## Run metadata`);
+    lines.push('');
+    lines.push(`- **Mode**: \`${mode}\` ${mode === 'decompose' ? '(layered JSON → compiled to Svelte)' : '(monolithic Svelte)'}`);
+    lines.push(`- **Provider**: \`${provider}\``);
+    lines.push(`- **Critic model**: \`${critic}\``);
+    lines.push(`- **Generator model**: \`${gen}\``);
+    lines.push(`- **Epochs completed**: ${epochsRun}`);
+    lines.push(`- **Total cost**: $${state.totalCost.toFixed(4)}`);
+    lines.push(`- **Total wall time**: ${fmtElapsed(state.totalTime)}`);
+    if (lastOverall != null)
+        lines.push(`- **Final overall score**: ${lastOverall}/10`);
+    lines.push('');
+    // Target image (inline data URL — works because the LLM only needs to "see" it)
+    if (state.targetDataUrl) {
+        lines.push(`## Target image`);
+        lines.push('');
+        lines.push(`The user-provided target the refiner was asked to replicate:`);
+        lines.push('');
+        lines.push(`![target](${state.targetDataUrl})`);
+        lines.push('');
+    }
+    // Score progression
+    if (state.scoreHistory.length) {
+        lines.push(`## Score progression (5–6 dimensions × ${epochsRun} epochs)`);
+        lines.push('');
+        lines.push('```json');
+        lines.push(JSON.stringify(state.scoreHistory, null, 2));
+        lines.push('```');
+        lines.push('');
+    }
+    // Decompose-mode JSON (the source of truth) goes FIRST in decompose mode
+    if (mode === 'decompose' && state.currentDecompose) {
+        lines.push(`## Layered button schema (decompose mode)`);
+        lines.push('');
+        lines.push(`This is the canonical representation. The Svelte/HTML below were generated deterministically from this JSON by \`compileLayersToSvelte\`. To modify the button, edit this JSON and recompile.`);
+        lines.push('');
+        lines.push('```json');
+        lines.push(JSON.stringify(state.currentDecompose, null, 2));
+        lines.push('```');
+        lines.push('');
+    }
+    // Final Svelte component
+    if (state.currentSvelte) {
+        lines.push(`## Final Svelte component`);
+        lines.push('');
+        lines.push('```svelte');
+        lines.push(state.currentSvelte);
+        lines.push('```');
+        lines.push('');
+    }
+    // Standalone HTML preview
+    if (state.currentCode) {
+        lines.push(`## Standalone HTML preview`);
+        lines.push('');
+        lines.push(`Self-contained, no external dependencies. Open in any browser to see the result.`);
+        lines.push('');
+        lines.push('```html');
+        lines.push(state.currentCode);
+        lines.push('```');
+        lines.push('');
+    }
+    // Extracted CSS / JS (only meaningful in holistic mode where they may differ)
+    if (state.currentCss && mode === 'holistic') {
+        lines.push(`## Extracted CSS`);
+        lines.push('');
+        lines.push('```css');
+        lines.push(state.currentCss);
+        lines.push('```');
+        lines.push('');
+    }
+    if (state.currentJs && mode === 'holistic') {
+        lines.push(`## Extracted JS`);
+        lines.push('');
+        lines.push('```js');
+        lines.push(state.currentJs);
+        lines.push('```');
+        lines.push('');
+    }
+    // Last critique
+    if (lastCritique && lastCritique !== 'esperando primer epoch...') {
+        lines.push(`## Last critique (from the visual critic)`);
+        lines.push('');
+        lines.push('```json');
+        lines.push(lastCritique);
+        lines.push('```');
+        lines.push('');
+    }
+    // System prompts used (so the receiving LLM understands the constraints)
+    const sysGen = mode === 'decompose'
+        ? document.getElementById('sysPromptDecomposeGen')?.value
+        : document.getElementById('sysPromptGen')?.value;
+    const sysCritic = mode === 'decompose'
+        ? document.getElementById('sysPromptDecomposeCritic')?.value
+        : document.getElementById('sysPromptCritic')?.value;
+    if (sysGen) {
+        lines.push(`## System prompt — generator`);
+        lines.push('');
+        lines.push('```text');
+        lines.push(sysGen);
+        lines.push('```');
+        lines.push('');
+    }
+    if (sysCritic) {
+        lines.push(`## System prompt — critic`);
+        lines.push('');
+        lines.push('```text');
+        lines.push(sysCritic);
+        lines.push('```');
+        lines.push('');
+    }
+    // What the next LLM should do with this
+    lines.push(`## How to use this export`);
+    lines.push('');
+    lines.push(`Paste this entire file into another LLM and ask one of:`);
+    lines.push('');
+    lines.push(`- "Integrate this Svelte component into my SvelteKit app at \`src/lib/components/Button.svelte\` and wire it up to the existing event system."`);
+    if (mode === 'decompose') {
+        lines.push(`- "Translate this layered button schema to React + CSS Modules, preserving the same animations and states."`);
+        lines.push(`- "Add a new state \`charging\` with a sweeping highlight animation across all layers."`);
+        lines.push(`- "The decomposition above scored ${lastOverall ?? '?'}/10 overall — review the last critique and propose a better layer structure."`);
+    }
+    else {
+        lines.push(`- "Refactor this monolithic Svelte component into smaller pieces (Button, Icon, Glow) without changing the visual output."`);
+        lines.push(`- "The component above scored ${lastOverall ?? '?'}/10 overall — review the last critique and produce a fixed version."`);
+    }
+    lines.push(`- "Generate 3 visual variants of this button (red/danger, green/success, blue/info) using the same structure."`);
+    lines.push('');
+    return lines.join('\n');
+}
+/** Trigger a browser download of the export bundle. */
+export function exportAllToFile() {
+    const md = buildExportMarkdown();
+    const session = state.currentSession || `export_${Date.now()}`;
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `game-ui-refiner_${session}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    log('ok', `📦 exported ${(md.length / 1024).toFixed(1)}kb to ${a.download}`);
 }
 export function startSession() {
     state.currentSession = makeSessionId();

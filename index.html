@@ -33,6 +33,12 @@
              class="bg-neutral-900 border border-neutral-800 rounded px-3 py-1.5 text-xs w-60 focus:outline-none focus:border-amber-500 hidden" />
 
       <select id="preset" class="bg-amber-900/40 border border-amber-700 rounded px-2 py-1.5 text-xs text-amber-200"></select>
+
+      <select id="modeToggle" title="Holistic = un .svelte monolítico. Decompose = JSON de capas animables."
+              class="bg-orange-900/40 border border-orange-700 rounded px-2 py-1.5 text-xs text-orange-200">
+        <option value="holistic">🎨 Holistic</option>
+        <option value="decompose">🧩 Decompose</option>
+      </select>
     </div>
   </div>
 
@@ -82,6 +88,11 @@
         <input id="saveToggle" type="checkbox" checked class="accent-amber-500" />
         <span>Guardar a <code class="text-amber-400">runs/&lt;session&gt;/</code></span>
       </label>
+      <button id="exportAllBtn" disabled
+              title="Descarga un .md con TODO (target, código, layers, critiques, prompts) listo para pegar en otra LLM"
+              class="w-full mt-1 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold rounded py-1.5 text-xs transition">
+        📦 Export ALL → LLM-ready .md
+      </button>
     </div>
 
     <div id="sessionPanel" class="bg-neutral-900 border border-neutral-800 rounded-lg p-3 hidden">
@@ -117,6 +128,14 @@ CONTENIDO: sos un experto en Svelte 4 + CSS replicando UIs de juego con máxima 
         <div>
           <label class="text-[10px] text-neutral-500 block mb-1">Crítico</label>
           <textarea id="sysPromptCritic" rows="4" class="w-full bg-neutral-950 border border-neutral-800 rounded px-2 py-1.5 text-[10px] scroll-thin font-mono">Sos un crítico estricto de diseño UI. Compará la imagen target con el render actual y devolvé SOLO un objeto JSON válido (sin markdown fences, sin comentarios) con este schema exacto: {"scores":{"structural_fidelity":0-10,"color_consistency":0-10,"typography":0-10,"spacing_alignment":0-10,"visual_completeness":0-10},"overall":0-10,"top_issues":[{"dimension":"color|layout|typography|spacing|completeness","severity":"high|medium|low","description":"texto breve y accionable"}],"fix_priorities":["fix1","fix2","fix3"]}</textarea>
+        </div>
+        <div data-mode-only="decompose" class="hidden">
+          <label class="text-[10px] text-orange-400 block mb-1">🧩 Generador (decompose)</label>
+          <textarea id="sysPromptDecomposeGen" rows="6" class="w-full bg-neutral-950 border border-orange-900 rounded px-2 py-1.5 text-[10px] scroll-thin font-mono" placeholder="(usa el default si está vacío)"></textarea>
+        </div>
+        <div data-mode-only="decompose" class="hidden">
+          <label class="text-[10px] text-orange-400 block mb-1">🧩 Crítico (decompose)</label>
+          <textarea id="sysPromptDecomposeCritic" rows="4" class="w-full bg-neutral-950 border border-orange-900 rounded px-2 py-1.5 text-[10px] scroll-thin font-mono" placeholder="(usa el default si está vacío)"></textarea>
         </div>
       </div>
     </details>
@@ -159,9 +178,20 @@ CONTENIDO: sos un experto en Svelte 4 + CSS replicando UIs de juego con máxima 
       </div>
 
       <div class="bg-neutral-900 border border-neutral-800 rounded-lg flex flex-col min-h-0">
-        <div class="px-3 py-1.5 border-b border-neutral-800 text-xs text-neutral-400 flex items-center justify-between">
-          <span>RENDER <span id="epochBadge" class="ml-2 px-1.5 py-0.5 bg-amber-500 text-neutral-950 rounded text-[10px] font-bold hidden"></span></span>
-          <span id="renderMeta" class="text-neutral-600 text-[10px]"></span>
+        <div class="px-3 py-1.5 border-b border-neutral-800 text-xs text-neutral-400 flex items-center gap-2">
+          <span>RENDER <span id="epochBadge" class="ml-1 px-1.5 py-0.5 bg-amber-500 text-neutral-950 rounded text-[10px] font-bold hidden"></span></span>
+          <div data-mode-only="decompose" class="hidden flex items-center gap-1">
+            <select id="stateSelector" title="Forzar estado del botón" class="bg-neutral-950 border border-orange-900 rounded text-[10px] px-1 py-0.5">
+              <option value="idle">idle</option>
+              <option value="hover">hover</option>
+              <option value="press">press</option>
+              <option value="disabled">disabled</option>
+            </select>
+            <select id="isolateLayer" title="Aislar capa (esconde las demás)" class="bg-neutral-950 border border-orange-900 rounded text-[10px] px-1 py-0.5">
+              <option value="">(todas)</option>
+            </select>
+          </div>
+          <span id="renderMeta" class="ml-auto text-neutral-600 text-[10px]"></span>
         </div>
         <div class="flex-1 relative bg-white">
           <iframe id="preview" class="w-full h-full border-0" sandbox="allow-same-origin"></iframe>
@@ -182,6 +212,7 @@ CONTENIDO: sos un experto en Svelte 4 + CSS replicando UIs de juego con máxima 
           <button data-tab="css"      class="tab-btn px-3 py-1.5 border-r border-neutral-800 hover:bg-neutral-800 text-neutral-400">🎨 CSS</button>
           <button data-tab="js"       class="tab-btn px-3 py-1.5 border-r border-neutral-800 hover:bg-neutral-800 text-neutral-400">⚙️ JS</button>
           <button data-tab="html"     class="tab-btn px-3 py-1.5 border-r border-neutral-800 hover:bg-neutral-800 text-neutral-400">📄 HTML</button>
+          <button data-tab="layers"   data-mode-only="decompose" class="tab-btn px-3 py-1.5 border-r border-neutral-800 hover:bg-neutral-800 text-orange-400 hidden">🧩 Layers</button>
           <button data-tab="prompts"  class="tab-btn px-3 py-1.5 border-r border-neutral-800 hover:bg-neutral-800 text-neutral-400">📝 Prompts</button>
           <button data-tab="logs"     class="tab-btn px-3 py-1.5 border-r border-neutral-800 hover:bg-neutral-800 text-neutral-400">🪵 Logs</button>
           <span id="critiqueOverall" class="ml-auto text-amber-400 font-mono px-2"></span>
@@ -194,6 +225,13 @@ CONTENIDO: sos un experto en Svelte 4 + CSS replicando UIs de juego con máxima 
           <pre id="paneCss"      class="tab-pane absolute inset-0 text-[10px] font-mono text-blue-300 overflow-auto scroll-thin p-2 hidden">— sin CSS todavía —</pre>
           <pre id="paneJs"       class="tab-pane absolute inset-0 text-[10px] font-mono text-yellow-300 overflow-auto scroll-thin p-2 hidden">— sin JS todavía —</pre>
           <pre id="paneHtml"     class="tab-pane absolute inset-0 text-[10px] font-mono text-neutral-300 overflow-auto scroll-thin p-2 hidden">— sin código todavía —</pre>
+          <div id="paneLayers"   class="tab-pane absolute inset-0 overflow-auto scroll-thin p-2 hidden flex flex-col gap-2">
+            <div class="flex items-center gap-2 text-[10px]">
+              <span id="layersMeta" class="text-neutral-500">— sin decomposición todavía —</span>
+              <button id="recompileLayersBtn" class="ml-auto px-2 py-1 bg-orange-700 hover:bg-orange-600 text-white rounded text-[10px] font-semibold">↻ Recompile (no LLM)</button>
+            </div>
+            <textarea id="layersJsonEditor" class="flex-1 w-full bg-neutral-950 border border-neutral-800 rounded p-2 text-[10px] font-mono text-orange-200 scroll-thin focus:outline-none focus:border-orange-500" spellcheck="false"></textarea>
+          </div>
           <div id="panePrompts"  class="tab-pane absolute inset-0 text-[10px] font-mono text-neutral-300 overflow-auto scroll-thin p-2 hidden">— sin prompts todavía —</div>
           <div  id="paneLogs"    class="tab-pane absolute inset-0 text-[10px] font-mono overflow-auto scroll-thin p-2 hidden"></div>
         </div>

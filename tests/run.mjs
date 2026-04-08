@@ -16,7 +16,9 @@ import {
   parseSvelteParts,
   extractJson,
   clamp01_10,
+  parseDecomposeJson,
 } from '../js/parser.js';
+import { compileLayersToSvelte, compileLayersToCss } from '../js/decompose.js';
 
 let passed = 0;
 let failed = 0;
@@ -302,6 +304,111 @@ test('returns null for NaN', () => {
 });
 test('parses numeric strings', () => {
   eq(clamp01_10('7'), 7);
+});
+
+// =====================================================================
+console.log('\n[parseDecomposeJson]');
+// =====================================================================
+
+const SAMPLE_DECOMPOSE = JSON.stringify({
+  width: 200,
+  height: 60,
+  layers: [
+    { name: 'base', role: 'plate', css: 'background:#444;' },
+    { name: 'glow', role: 'fx', css: 'opacity:.5;', animations: [
+      { name: 'pulse', trigger: 'always', keyframes: '0%{opacity:.4}50%{opacity:1}', duration: '1.2s', iteration: 'infinite' }
+    ]},
+  ],
+  states: [{ name: 'idle' }, { name: 'hover', overrides: { glow: 'opacity:1;' } }],
+});
+
+test('parses raw JSON', () => {
+  const r = parseDecomposeJson(SAMPLE_DECOMPOSE);
+  if (!r.data) throw new Error('expected data, got null. notes=' + r.parserNotes.join('|'));
+  eq(r.data.layers.length, 2);
+  eq(r.data.states.length, 2);
+});
+
+test('parses JSON inside ```json fence', () => {
+  const wrapped = '```json\n' + SAMPLE_DECOMPOSE + '\n```';
+  const r = parseDecomposeJson(wrapped);
+  if (!r.data) throw new Error('expected data');
+  eq(r.data.layers[0].name, 'base');
+});
+
+test('parses JSON with leading prose', () => {
+  const wrapped = "Here is the decomposition:\n\n```json\n" + SAMPLE_DECOMPOSE + "\n```\n";
+  const r = parseDecomposeJson(wrapped);
+  if (!r.data) throw new Error('expected data');
+  eq(r.data.layers.length, 2);
+});
+
+test('returns null on broken JSON', () => {
+  const r = parseDecomposeJson('not json at all');
+  eq(r.data, null);
+});
+
+test('rejects when layers array is missing', () => {
+  const r = parseDecomposeJson('{"foo":1}');
+  eq(r.data, null);
+});
+
+test('synthesizes default state if missing', () => {
+  const r = parseDecomposeJson('{"layers":[{"name":"a","role":"plate","css":""}]}');
+  if (!r.data) throw new Error('expected data');
+  eq(r.data.states.length, 1);
+  eq(r.data.states[0].name, 'idle');
+});
+
+test('drops invalid layers but keeps valid ones', () => {
+  const r = parseDecomposeJson('{"layers":[{"name":"a","role":"plate"},{"role":"fx"},{"name":"b","role":"frame"}]}');
+  if (!r.data) throw new Error('expected data');
+  eq(r.data.layers.length, 2);
+  eq(r.data.layers.map(l => l.name), ['a', 'b']);
+});
+
+// =====================================================================
+console.log('\n[compileLayersToSvelte]');
+// =====================================================================
+
+test('emits svelte + html + css', () => {
+  const r = parseDecomposeJson(SAMPLE_DECOMPOSE);
+  const compiled = compileLayersToSvelte(r.data);
+  if (!compiled.svelte.includes('<style>')) throw new Error('svelte missing <style>');
+  if (!compiled.html.includes('<!doctype html>')) throw new Error('html missing doctype');
+  if (!compiled.css.includes('.layer-base')) throw new Error('css missing .layer-base');
+  if (!compiled.css.includes('.layer-glow')) throw new Error('css missing .layer-glow');
+});
+
+test('emits @keyframes for animations', () => {
+  const r = parseDecomposeJson(SAMPLE_DECOMPOSE);
+  const css = compileLayersToCss(r.data);
+  if (!css.includes('@keyframes pulse')) throw new Error('missing @keyframes pulse');
+  if (!css.includes('animation: pulse')) throw new Error('missing animation declaration');
+});
+
+test('emits state override rules', () => {
+  const r = parseDecomposeJson(SAMPLE_DECOMPOSE);
+  const css = compileLayersToCss(r.data);
+  if (!css.includes('.state-hover .layer-glow')) throw new Error('missing hover override');
+});
+
+test('emits isolate rules per layer', () => {
+  const r = parseDecomposeJson(SAMPLE_DECOMPOSE);
+  const css = compileLayersToCss(r.data);
+  if (!css.includes('[data-isolate]:not([data-isolate="base"])')) throw new Error('missing isolate rule');
+});
+
+test('compiled markup uses state class', () => {
+  const r = parseDecomposeJson(SAMPLE_DECOMPOSE);
+  const compiled = compileLayersToSvelte(r.data, { state: 'press' });
+  if (!compiled.html.includes('class="button-root state-press"')) throw new Error('html missing state-press');
+});
+
+test('isolate option emits data-isolate attribute', () => {
+  const r = parseDecomposeJson(SAMPLE_DECOMPOSE);
+  const compiled = compileLayersToSvelte(r.data, { isolate: 'glow' });
+  if (!compiled.html.includes('data-isolate="glow"')) throw new Error('missing data-isolate attr');
 });
 
 // =====================================================================

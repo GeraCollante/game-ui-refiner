@@ -44,13 +44,62 @@ export interface ModelCallResult {
   dt: number;
 }
 
-/** Critic JSON schema (5 dimensions, each 0–10). */
+/** Critic JSON schema (5–6 dimensions, each 0–10). */
 export interface CritiqueScores {
   structural_fidelity?: number;
   color_consistency?: number;
   typography?: number;
   spacing_alignment?: number;
   visual_completeness?: number;
+  /** Only present in decompose mode: how separable / animatable the layers are. */
+  decomposition?: number;
+}
+
+// =====================================================================
+// Decompose mode (layered button schema)
+// =====================================================================
+
+export type RefinerMode = 'holistic' | 'decompose';
+
+export type LayerRole = 'plate' | 'frame' | 'fx' | 'content' | 'shadow';
+export type StateName = 'idle' | 'hover' | 'press' | 'disabled';
+
+export interface DecomposeAnimation {
+  name: string;
+  trigger: 'always' | 'hover' | 'press';
+  /** A bare `@keyframes` body, e.g. `0% { opacity:.6 } 100% { opacity:1 }` (no `@keyframes` keyword, no name, no braces around it) */
+  keyframes: string;
+  duration: string;
+  iteration: 'infinite' | number;
+}
+
+export interface DecomposeLayer {
+  name: string;
+  role: LayerRole;
+  /** Plain CSS body for `.layer-{name}` (no selector, no braces). */
+  css: string;
+  svg?: string;
+  text?: string;
+  ninepatch?: { top: number; right: number; bottom: number; left: number };
+  animations?: DecomposeAnimation[];
+}
+
+export interface DecomposeState {
+  name: StateName;
+  /** layer name → extra css body */
+  overrides?: Record<string, string>;
+}
+
+export interface DecomposeOutput {
+  layers: DecomposeLayer[];
+  states: DecomposeState[];
+  width?: number;
+  height?: number;
+}
+
+export interface ParsedDecompose {
+  data: DecomposeOutput | null;
+  parserNotes: string[];
 }
 
 export interface CritiqueIssue {

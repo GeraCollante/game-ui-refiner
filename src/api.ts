@@ -228,7 +228,8 @@ export function buildCriticMessages(
   sysPrompt: string,
   targetUrl: string,
   currentRenderUrl: string | null,
-  currentCode: string
+  currentCode: string,
+  prevCritique: any = null
 ): ChatMessage[] {
   const userContent: MessagePart[] = [
     {
@@ -243,6 +244,18 @@ export function buildCriticMessages(
     userContent.push({ type: 'text', text: '(no se pudo capturar el render actual; juzgá basándote en el código previo)' });
   }
   userContent.push({ type: 'text', text: '\nCódigo actual:\n```html\n' + currentCode + '\n```' });
+  if (prevCritique && !prevCritique.error) {
+    userContent.push({
+      type: 'text',
+      text:
+        '\n══════════════════════════════════════\n' +
+        'CRÍTICA DEL EPOCH ANTERIOR (úsala para juzgar continuidad):\n' +
+        '```json\n' +
+        JSON.stringify(prevCritique, null, 2) +
+        '\n```\n' +
+        'OBLIGATORIO: revisá CADA item de su `fix_priorities` y reportá en `addressed_prev_priorities` / `ignored_prev_priorities` qué se aplicó. Si hay ignored, aplicá la penalización al overall según la rúbrica.',
+    });
+  }
   return [
     { role: 'system', content: sysPrompt },
     { role: 'user', content: userContent },
@@ -279,6 +292,94 @@ export function buildRefineMessages(
       '\n\nHTML preview previo:\n```html\n' +
       prevHtml +
       '\n```',
+  });
+  return [
+    { role: 'system', content: sysPrompt },
+    { role: 'user', content: userContent },
+  ];
+}
+
+// =====================================================================
+// Decompose-mode message builders
+// =====================================================================
+
+export function buildInitialDecomposeMessages(sysPrompt: string, targetUrl: string): ChatMessage[] {
+  return [
+    { role: 'system', content: sysPrompt },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: 'Esta es la imagen TARGET de un botón. Descomponelo en CAPAS animables y devolvé EXACTAMENTE un único bloque ```json``` con el schema indicado. Pensá: ¿qué va al fondo? ¿qué efectos van encima? ¿qué cambia en hover/press?',
+        },
+        { type: 'image_url', image_url: { url: targetUrl } },
+      ],
+    },
+  ];
+}
+
+export function buildRefineDecomposeMessages(
+  sysPrompt: string,
+  targetUrl: string,
+  currentRenderUrl: string | null,
+  prevDecomposeJson: string,
+  critique: any
+): ChatMessage[] {
+  // Surface the prev fix_priorities at the top so the model literally cannot miss them.
+  const fixList: string[] = Array.isArray(critique?.fix_priorities) ? critique.fix_priorities : [];
+  const issuesList: any[] = Array.isArray(critique?.top_issues) ? critique.top_issues : [];
+  const ignoredCount = Array.isArray(critique?.ignored_prev_priorities) ? critique.ignored_prev_priorities.length : 0;
+
+  const fixBlock = fixList.length
+    ? '🔴 FIX_PRIORITIES OBLIGATORIOS (en orden — cada uno que ignores es -1 al overall del próximo epoch):\n' +
+      fixList.map((f, i) => `  ${i + 1}. ${f}`).join('\n') +
+      '\n'
+    : '';
+
+  const issuesBlock = issuesList.length
+    ? '\nIssues identificados:\n' +
+      issuesList
+        .map((it: any) => `  • [${it.severity || '?'}/${it.dimension || '?'}] ${it.description || ''}`)
+        .join('\n') +
+      '\n'
+    : '';
+
+  const regressionWarning = critique?.regression
+    ? '\n⚠️ REGRESIÓN DETECTADA en el epoch anterior — no rompas más cosas.\n'
+    : '';
+
+  const ignoredWarning = ignoredCount > 0
+    ? `\n⚠️ EL EPOCH ANTERIOR IGNORÓ ${ignoredCount} fix_priorities. NO LO REPITAS.\n`
+    : '';
+
+  const userContent: MessagePart[] = [
+    {
+      type: 'text',
+      text:
+        'IMAGEN 1: TARGET. IMAGEN 2: render actual del botón compilado desde tu JSON previo.\n' +
+        'Tu trabajo: aplicar los fix_priorities exactamente, devolver un JSON MEJORADO con el mismo schema, en UN solo bloque ```json```, nada más.\n' +
+        regressionWarning +
+        ignoredWarning +
+        '\n' +
+        fixBlock +
+        issuesBlock,
+    },
+    { type: 'image_url', image_url: { url: targetUrl } },
+  ];
+  if (currentRenderUrl) {
+    userContent.push({ type: 'image_url', image_url: { url: currentRenderUrl } });
+  }
+  userContent.push({
+    type: 'text',
+    text:
+      '\nCRÍTICA COMPLETA del experto (referencia):\n```json\n' +
+      JSON.stringify(critique, null, 2) +
+      '\n```' +
+      '\n\nDecomposición previa (modificá esta, no la rehagas desde cero):\n```json\n' +
+      prevDecomposeJson +
+      '\n```' +
+      '\n\nRecordatorio final: el crítico del próximo epoch va a comparar tu output contra los fix_priorities de arriba y va a marcar los que NO aplicaste. Aplicalos TODOS.',
   });
   return [
     { role: 'system', content: sysPrompt },

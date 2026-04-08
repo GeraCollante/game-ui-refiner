@@ -42,19 +42,29 @@ This tool **closes the loop**: the model sees the target, generates code, the br
 ## How it works
 
 ```mermaid
-flowchart LR
-    T[Target Image] --> G1[Generator VLM]
-    G1 --> R1[Render in iframe]
-    R1 --> S[Screenshot]
-    S --> C[Critic VLM]
+flowchart TB
+    T[🎯 Target<br/><b>image</b>]:::target --> G1[🧠 Generator VLM<br/><b>writes Svelte + HTML</b>]:::gen
+    G1 --> R1[🖼️ Render<br/><b>in iframe</b>]:::render
+    R1 --> S[📸 Screenshot<br/><b>html2canvas JPEG</b>]:::shot
+    S --> C[🔍 Critic VLM<br/><b>compares target vs render</b>]:::critic
     T --> C
-    C -->|JSON: scores + issues| G2[Generator refines]
+    C -->|📋 JSON scores + issues| G2[♻️ Generator refines<br/><b>using critique</b>]:::gen
     G2 --> R1
-    C -->|score plateaus OR pause| OUT[Final .svelte]
-    OUT --> H{Want a final touch?}
-    H -->|yes| HF[👤 Human feedback in plain text]
-    HF --> FG[Forced Gemini 3.1 Pro]
-    FG --> OUT2[Polished .svelte]
+    C -->|⏸ pause / ⛰️ plateau| OUT[✅ Final .svelte<br/><b>auto run done</b>]:::out
+    OUT --> H{✨ Final touch?}:::ask
+    H -->|yes| HF[👤 Human feedback<br/><b>plain text</b>]:::human
+    HF --> FG[👑 Forced Gemini 3.1 Pro<br/><b>top model, ignores preset</b>]:::premium
+    FG --> OUT2[🏆 Polished .svelte<br/><b>deliverable</b>]:::out
+
+    classDef target   fill:#1e293b,stroke:#fbbf24,stroke-width:2px,color:#fbbf24
+    classDef gen      fill:#581c87,stroke:#c084fc,stroke-width:2px,color:#f5f3ff
+    classDef render   fill:#0c4a6e,stroke:#38bdf8,stroke-width:2px,color:#e0f2fe
+    classDef shot     fill:#134e4a,stroke:#2dd4bf,stroke-width:2px,color:#ccfbf1
+    classDef critic   fill:#164e63,stroke:#22d3ee,stroke-width:2px,color:#cffafe
+    classDef out      fill:#14532d,stroke:#4ade80,stroke-width:2px,color:#dcfce7
+    classDef ask      fill:#422006,stroke:#fbbf24,stroke-width:2px,color:#fde68a
+    classDef human    fill:#4c1d95,stroke:#a78bfa,stroke-width:2px,color:#ede9fe
+    classDef premium  fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#fff7ed
 ```
 
 The architecture is heavily inspired by **GameUIAgent** (the 6-stage pipeline + 5 quality dimensions for the critic), **UI2Code^N** (the iterative drafting/polishing paradigm), **VisRefiner** (the diff-aligned learning approach), and **AutoGameUI** (the separation of UI artist concerns from UX functional concerns). See [Related work](#related-work) below for citations.
@@ -63,56 +73,88 @@ The architecture is heavily inspired by **GameUIAgent** (the 6-stage pipeline + 
 
 ```mermaid
 sequenceDiagram
-    participant U as You
-    participant L as Loop
-    participant G as Generator (e.g. Gemini 3.1 Pro)
-    participant I as iframe
-    participant C as Critic (e.g. Gemini 3.1 Flash-Lite)
-    U->>L: Click ▶ Start
-    L->>G: target image + system prompt
-    G-->>L: ```svelte ... ``` + ```html ... ```
-    L->>I: render html via srcdoc
-    I->>L: screenshot (JPEG via html2canvas)
-    L->>C: target + screenshot + code
-    C-->>L: {scores: {struc, color, type, space, compl}, top_issues, fix_priorities}
-    L->>L: scoreHistory.push() and drawChart()
-    Note over L: epoch N+1 if scoreHistory.length < epochs
-    L->>G: target + screenshot + critique JSON + previous code
-    G-->>L: refined ```svelte``` + ```html```
+    autonumber
+    participant U as 👤 You
+    participant L as 🔁 Loop
+    participant G as 🧠 Generator<br/><b>Gemini 3.1 Pro</b>
+    participant I as 🖼️ iframe
+    participant C as 🔍 Critic<br/><b>Gemini Flash-Lite</b>
+    U->>+L: ▶️ Click Start
+    L->>+G: 🎯 target image + system prompt
+    G-->>-L: 📦 svelte block<br/>📄 html block
+    L->>+I: render via srcdoc
+    I-->>-L: 📸 screenshot<br/><b>JPEG html2canvas</b>
+    L->>+C: 🎯 target + 📸 render + code
+    C-->>-L: 📋 critique JSON<br/><b>5 scores + issues</b>
+    L->>L: 📈 scoreHistory.push<br/>🎨 drawChart
+    Note over L: ↻ epoch N+1<br/>while scoreHistory.length &lt; epochs
+    L->>+G: 🎯 + 📸 + 📋 critique + previous code
+    G-->>-L: ♻️ refined svelte + html
     L->>I: re-render
-    Note over U: ⏸ Pause when satisfied
+    Note over U: ⏸️ Pause when satisfied
     U->>L: ✨ Type manual feedback
-    L->>G: target + render + previous + human text<br/>(forced Gemini 3.1 Pro)
-    G-->>L: final polished code
+    L->>+G: 👑 forced Gemini 3.1 Pro<br/>🎯 + 📸 + 👤 human text
+    G-->>-L: 🏆 final polished code
+    L-->>-U: ✅ Done
 ```
 
 ### Provider abstraction
 
 ```mermaid
 flowchart TB
-    App[runRefinement loop] --> CM[callModel dispatcher]
-    CM -->|provider == google| CG[callGoogle<br/>v1beta/models/...:generateContent]
-    CM -->|provider == openrouter| CO[callOpenRouter<br/>api/v1/chat/completions]
-    CG --> Gemini[Google AI Studio<br/>gemini-3.x / 2.5 / 2.0 / 1.5]
-    CO --> OR[OpenRouter]
-    OR --> Many[Claude 4.x / GPT-5.x / Grok 4.x<br/>Qwen / Kimi / Nemotron / ...]
+    App[🔁 runRefinement loop<br/><b>main.ts</b>]:::app --> CM{🚦 callModel<br/><b>dispatcher</b>}:::dispatch
+    CM -->|🟦 google| CG[📡 callGoogle<br/><b>v1beta/models/:generateContent</b>]:::google
+    CM -->|🟧 openrouter| CO[📡 callOpenRouter<br/><b>api/v1/chat/completions</b>]:::or
+    CG --> Gemini[💎 Google AI Studio<br/><b>Gemini 3.x / 2.5 / 2.0 / 1.5</b>]:::google
+    CO --> OR[🌐 OpenRouter<br/><b>unified gateway</b>]:::or
+    OR --> Claude[🤖 Claude 4.x<br/><b>Anthropic</b>]:::anth
+    OR --> GPT[🤖 GPT-5.x<br/><b>OpenAI</b>]:::oai
+    OR --> Grok[🤖 Grok 4.x<br/><b>xAI · 2M ctx</b>]:::xai
+    OR --> Other[🤖 Qwen / Kimi / Nemotron / Llama<br/><b>open weights</b>]:::other
+
+    classDef app      fill:#1e293b,stroke:#fbbf24,stroke-width:2px,color:#fde68a
+    classDef dispatch fill:#422006,stroke:#f59e0b,stroke-width:2px,color:#fde68a
+    classDef google   fill:#0c4a6e,stroke:#38bdf8,stroke-width:2px,color:#e0f2fe
+    classDef or       fill:#7c2d12,stroke:#fb923c,stroke-width:2px,color:#fff7ed
+    classDef anth     fill:#451a03,stroke:#d97706,stroke-width:1.5px,color:#fef3c7
+    classDef oai      fill:#14532d,stroke:#22c55e,stroke-width:1.5px,color:#dcfce7
+    classDef xai      fill:#0f172a,stroke:#64748b,stroke-width:1.5px,color:#e2e8f0
+    classDef other    fill:#581c87,stroke:#a855f7,stroke-width:1.5px,color:#f5f3ff
 ```
 
 ### File save layout per session
 
 ```mermaid
 flowchart TB
-    R[runs/] --> S[20260407_152330_a3b8/]
-    S --> e1[epoch1_render.jpg]
-    S --> e1s[epoch1_component.svelte]
-    S --> e1h[epoch1_preview.html]
-    S --> e1c[epoch1_critique.json]
-    S --> e1g[epoch1_gen_response.txt]
-    S --> e1cr[epoch1_critic_response.txt]
-    S --> dot[...]
-    S --> h1[human1_feedback.txt]
-    S --> h1s[human1_component.svelte]
-    S --> h1r[human1_render.jpg]
+    R[📁 runs/]:::root --> S[🗂️ 20260407_152330_a3b8/<br/><b>session timestamp + random</b>]:::session
+
+    S --> AUTO[🤖 Auto epochs<br/><b>generated by the loop</b>]:::auto
+    S --> MAN[👤 Manual epochs<br/><b>human feedback touches</b>]:::manual
+
+    AUTO --> A1[📸 epoch1_render.jpg<br/><b>screenshot for the critic</b>]:::img
+    AUTO --> A2[📦 epoch1_component.svelte<br/><b>deliverable</b>]:::code
+    AUTO --> A3[📄 epoch1_preview.html<br/><b>standalone preview</b>]:::code
+    AUTO --> A4[📋 epoch1_critique.json<br/><b>scores + issues</b>]:::critique
+    AUTO --> A5[💬 epoch1_gen_response.txt<br/><b>raw generator output</b>]:::raw
+    AUTO --> A6[💬 epoch1_critic_response.txt<br/><b>raw critic output</b>]:::raw
+    AUTO --> AN[➕ epochN_*<br/><b>same set per epoch</b>]:::more
+
+    MAN --> M1[✍️ human1_feedback.txt<br/><b>your prompt</b>]:::human
+    MAN --> M2[📦 human1_component.svelte<br/><b>polished deliverable</b>]:::code
+    MAN --> M3[📄 human1_preview.html<br/><b>polished preview</b>]:::code
+    MAN --> M4[📸 human1_render.jpg<br/><b>final screenshot</b>]:::img
+    MAN --> MN[➕ humanN_*<br/><b>one set per feedback</b>]:::more
+
+    classDef root     fill:#1e1b4b,stroke:#a78bfa,stroke-width:2px,color:#ede9fe
+    classDef session  fill:#312e81,stroke:#818cf8,stroke-width:2px,color:#e0e7ff
+    classDef auto     fill:#0c4a6e,stroke:#38bdf8,stroke-width:2px,color:#e0f2fe
+    classDef manual   fill:#581c87,stroke:#c084fc,stroke-width:2px,color:#f5f3ff
+    classDef img      fill:#134e4a,stroke:#2dd4bf,stroke-width:1.5px,color:#ccfbf1
+    classDef code     fill:#14532d,stroke:#4ade80,stroke-width:1.5px,color:#dcfce7
+    classDef critique fill:#422006,stroke:#fbbf24,stroke-width:1.5px,color:#fde68a
+    classDef raw      fill:#1f2937,stroke:#9ca3af,stroke-width:1.5px,color:#e5e7eb
+    classDef human    fill:#4c1d95,stroke:#a78bfa,stroke-width:1.5px,color:#ede9fe
+    classDef more     fill:#374151,stroke:#6b7280,stroke-width:1px,color:#d1d5db,stroke-dasharray:4 2
 ```
 
 ---

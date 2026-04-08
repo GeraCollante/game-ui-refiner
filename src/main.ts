@@ -2,19 +2,28 @@
  * Entry point: main loops, event listeners, init code.
  */
 
-import { currentProvider, getCurrentApiKey, getModelInfo } from './config.js';
+import {
+  currentProvider,
+  getCurrentApiKey,
+  getModelInfo,
+  DEFAULT_DECOMPOSE_GEN_PROMPT,
+  DEFAULT_DECOMPOSE_CRITIC_PROMPT,
+} from './config.js';
 import { state, resetState } from './state.js';
-import { extractJson, parseDualOutput, stripFences } from './parser.js';
+import { extractJson, parseDecomposeJson, parseDualOutput, stripFences } from './parser.js';
 import {
   buildCriticMessages,
   buildFeedbackMessages,
+  buildInitialDecomposeMessages,
   buildInitialGenMessages,
+  buildRefineDecomposeMessages,
   buildRefineMessages,
   callModel,
   callModelForced,
   renderInIframe,
   screenshotIframe,
 } from './api.js';
+import { compileLayersToSvelte } from './decompose.js';
 import {
   $,
   addHistoryThumb,
@@ -33,8 +42,9 @@ import {
   startTicker,
   stopTicker,
   updateCodePanes,
+  updateLayersPane,
 } from './ui.js';
-import type { Critique, ScoreEntry } from './types.js';
+import type { Critique, DecomposeOutput, RefinerMode, ScoreEntry, StateName } from './types.js';
 
 // =====================================================================
 // Cached element refs
@@ -165,6 +175,96 @@ $('genModel').addEventListener('change', () => {
   ($('preset') as HTMLSelectElement).value = 'custom';
 });
 
+// =====================================================================
+// Mode toggle (holistic vs decompose)
+// =====================================================================
+
+function applyModeUI(mode: RefinerMode): void {
+  state.mode = mode;
+  document.body.dataset.mode = mode;
+  // Decompose-only controls
+  const decomposeOnly = document.querySelectorAll<HTMLElement>('[data-mode-only="decompose"]');
+  decomposeOnly.forEach((el) => el.classList.toggle('hidden', mode !== 'decompose'));
+  const holisticOnly = document.querySelectorAll<HTMLElement>('[data-mode-only="holistic"]');
+  holisticOnly.forEach((el) => el.classList.toggle('hidden', mode !== 'holistic'));
+  drawChart();
+}
+
+const modeToggle = $('modeToggle') as HTMLSelectElement | null;
+if (modeToggle) {
+  modeToggle.value = (localStorage.getItem('mode') as RefinerMode) || 'holistic';
+  applyModeUI(modeToggle.value as RefinerMode);
+  modeToggle.addEventListener('change', (e: Event) => {
+    const m = (e.target as HTMLSelectElement).value as RefinerMode;
+    localStorage.setItem('mode', m);
+    applyModeUI(m);
+  });
+}
+
+// =====================================================================
+// Decompose: state selector / isolate / recompile (no LLM call)
+// =====================================================================
+
+function recompileFromState(opts: { state?: StateName; isolate?: string | null } = {}): void {
+  if (!state.currentDecompose) return;
+  const compiled = compileLayersToSvelte(state.currentDecompose, opts);
+  state.currentSvelte = compiled.svelte;
+  state.currentCode = compiled.html;
+  updateCodePanes(state.currentSvelte, state.currentCode);
+  renderInIframe(state.currentCode);
+}
+
+function refreshIsolateOptions(d: DecomposeOutput): void {
+  const sel = $('isolateLayer') as HTMLSelectElement | null;
+  if (!sel) return;
+  sel.innerHTML = '<option value="">(none)</option>';
+  for (const layer of d.layers) {
+    const opt = document.createElement('option');
+    opt.value = layer.name;
+    opt.textContent = layer.name;
+    sel.appendChild(opt);
+  }
+}
+
+const stateSelector = $('stateSelector') as HTMLSelectElement | null;
+if (stateSelector) {
+  stateSelector.addEventListener('change', () => {
+    const isoSel = $('isolateLayer') as HTMLSelectElement | null;
+    recompileFromState({
+      state: stateSelector.value as StateName,
+      isolate: isoSel?.value || null,
+    });
+  });
+}
+const isolateSelector = $('isolateLayer') as HTMLSelectElement | null;
+if (isolateSelector) {
+  isolateSelector.addEventListener('change', () => {
+    const stSel = $('stateSelector') as HTMLSelectElement | null;
+    recompileFromState({
+      state: (stSel?.value as StateName) || 'idle',
+      isolate: isolateSelector.value || null,
+    });
+  });
+}
+const recompileBtn = $('recompileLayersBtn') as HTMLButtonElement | null;
+if (recompileBtn) {
+  recompileBtn.addEventListener('click', () => {
+    const ta = $('layersJsonEditor') as HTMLTextAreaElement | null;
+    if (!ta) return;
+    try {
+      const parsed = JSON.parse(ta.value);
+      if (!Array.isArray(parsed.layers)) throw new Error('layers[] missing');
+      state.currentDecompose = parsed as DecomposeOutput;
+      refreshIsolateOptions(parsed);
+      recompileFromState();
+      log('ok', `🧩 recompiled (no LLM call) · ${parsed.layers.length} layers`);
+    } catch (e: any) {
+      log('err', `recompile failed: ${e.message}`);
+      alert('JSON inválido: ' + e.message);
+    }
+  });
+}
+
 // Session copy button
 const cs = $('copySession');
 if (cs) {
@@ -187,8 +287,13 @@ async function runRefinement(): Promise<void> {
   const genModel = ($('genModel') as HTMLSelectElement).value;
   const epochs = parseInt(($('epochs') as HTMLInputElement).value, 10);
   const maxTokens = parseInt(($('maxTokens') as HTMLInputElement).value, 10);
-  const sysPromptGen = ($('sysPromptGen') as HTMLTextAreaElement).value;
-  const sysPromptCritic = ($('sysPromptCritic') as HTMLTextAreaElement).value;
+  const mode: RefinerMode = state.mode;
+  const sysPromptGen = mode === 'decompose'
+    ? (($('sysPromptDecomposeGen') as HTMLTextAreaElement | null)?.value || DEFAULT_DECOMPOSE_GEN_PROMPT)
+    : ($('sysPromptGen') as HTMLTextAreaElement).value;
+  const sysPromptCritic = mode === 'decompose'
+    ? (($('sysPromptDecomposeCritic') as HTMLTextAreaElement | null)?.value || DEFAULT_DECOMPOSE_CRITIC_PROMPT)
+    : ($('sysPromptCritic') as HTMLTextAreaElement).value;
   const provider = currentProvider();
 
   if (!apiKey) {
@@ -238,20 +343,30 @@ async function runRefinement(): Promise<void> {
       // ============ STEP A: GENERATE ============
       let genMessages;
       if (i === 0) {
-        setLoading(true, `[${epochNum}/${epochs}] Draft inicial (${getModelInfo(genModel)?.label})...`);
-        log('info', `epoch ${epochNum}: initial draft`);
-        genMessages = buildInitialGenMessages(sysPromptGen, state.targetDataUrl);
+        setLoading(true, `[${epochNum}/${epochs}] Draft inicial ${mode === 'decompose' ? '(decompose) ' : ''}(${getModelInfo(genModel)?.label})...`);
+        log('info', `epoch ${epochNum}: initial draft (mode=${mode})`);
+        genMessages = mode === 'decompose'
+          ? buildInitialDecomposeMessages(sysPromptGen, state.targetDataUrl)
+          : buildInitialGenMessages(sysPromptGen, state.targetDataUrl);
       } else {
-        setLoading(true, `[${epochNum}/${epochs}] Refinando (${getModelInfo(genModel)?.label})...`);
+        setLoading(true, `[${epochNum}/${epochs}] Refinando ${mode === 'decompose' ? '(decompose) ' : ''}(${getModelInfo(genModel)?.label})...`);
         log('info', `epoch ${epochNum}: refine using last critique`);
-        genMessages = buildRefineMessages(
-          sysPromptGen,
-          state.targetDataUrl,
-          lastEpochScreenshot,
-          state.currentSvelte || '',
-          state.currentCode || '',
-          lastCritique
-        );
+        genMessages = mode === 'decompose'
+          ? buildRefineDecomposeMessages(
+              sysPromptGen,
+              state.targetDataUrl,
+              lastEpochScreenshot,
+              state.currentDecompose ? JSON.stringify(state.currentDecompose, null, 2) : '{}',
+              lastCritique
+            )
+          : buildRefineMessages(
+              sysPromptGen,
+              state.targetDataUrl,
+              lastEpochScreenshot,
+              state.currentSvelte || '',
+              state.currentCode || '',
+              lastCritique
+            );
       }
 
       state.lastPrompts.generator = genMessages;
@@ -261,20 +376,41 @@ async function runRefinement(): Promise<void> {
       state.lastResponses.generator = genRes.content;
       refreshPromptsPane();
 
-      const parsed = parseDualOutput(genRes.content);
-      for (const note of parsed.parserNotes || []) {
-        const level = note.startsWith('⚠️') || note.startsWith('FAIL') ? 'warn' : 'info';
-        log(level, `parser: ${note}`);
+      if (mode === 'decompose') {
+        const parsedD = parseDecomposeJson(genRes.content);
+        for (const note of parsedD.parserNotes || []) {
+          const level = note.startsWith('⚠️') || note.startsWith('FAIL') ? 'warn' : 'info';
+          log(level, `parser: ${note}`);
+        }
+        if (!parsedD.data) {
+          log('err', `decompose generator no devolvió JSON parseable`, { rawLen: genRes.content.length });
+          log('err', `RAW (primeros 400 chars): ${genRes.content.slice(0, 400)}`);
+          throw new Error('decompose parser falló — ver tab Logs');
+        }
+        state.currentDecompose = parsedD.data;
+        const compiled = compileLayersToSvelte(parsedD.data);
+        state.currentSvelte = compiled.svelte;
+        state.currentCode = compiled.html;
+        updateCodePanes(state.currentSvelte, state.currentCode);
+        updateLayersPane(parsedD.data);
+        refreshIsolateOptions(parsedD.data);
+        $('renderMeta').textContent = `[decompose] ${parsedD.data.layers.length}L · ${parsedD.data.states.length}S · svelte ${(state.currentSvelte.length / 1024).toFixed(1)}kb · ${genRes.dt.toFixed(1)}s`;
+      } else {
+        const parsed = parseDualOutput(genRes.content);
+        for (const note of parsed.parserNotes || []) {
+          const level = note.startsWith('⚠️') || note.startsWith('FAIL') ? 'warn' : 'info';
+          log(level, `parser: ${note}`);
+        }
+        if (!parsed.html) log('err', `generator no devolvió HTML preview parseable`, { rawLen: genRes.content.length });
+        if (!parsed.svelte) log('err', `generator no devolvió svelte parseable`, { rawLen: genRes.content.length });
+        if (!parsed.svelte && !parsed.html) {
+          log('err', `RAW (primeros 400 chars): ${genRes.content.slice(0, 400)}`);
+        }
+        state.currentCode = parsed.html || stripFences(genRes.content);
+        state.currentSvelte = parsed.svelte || '';
+        updateCodePanes(state.currentSvelte, state.currentCode);
+        $('renderMeta').textContent = `svelte ${(state.currentSvelte.length / 1024).toFixed(1)}kb · html ${(state.currentCode.length / 1024).toFixed(1)}kb · css ${(state.currentCss.length / 1024).toFixed(1)}kb · js ${(state.currentJs.length / 1024).toFixed(1)}kb · ${genRes.dt.toFixed(1)}s`;
       }
-      if (!parsed.html) log('err', `generator no devolvió HTML preview parseable`, { rawLen: genRes.content.length });
-      if (!parsed.svelte) log('err', `generator no devolvió svelte parseable`, { rawLen: genRes.content.length });
-      if (!parsed.svelte && !parsed.html) {
-        log('err', `RAW (primeros 400 chars): ${genRes.content.slice(0, 400)}`);
-      }
-      state.currentCode = parsed.html || stripFences(genRes.content);
-      state.currentSvelte = parsed.svelte || '';
-      updateCodePanes(state.currentSvelte, state.currentCode);
-      $('renderMeta').textContent = `svelte ${(state.currentSvelte.length / 1024).toFixed(1)}kb · html ${(state.currentCode.length / 1024).toFixed(1)}kb · css ${(state.currentCss.length / 1024).toFixed(1)}kb · js ${(state.currentJs.length / 1024).toFixed(1)}kb · ${genRes.dt.toFixed(1)}s`;
 
       setLoading(false);
       await renderInIframe(state.currentCode);
@@ -314,14 +450,18 @@ async function runRefinement(): Promise<void> {
       addHistoryThumb(epochNum, lastEpochScreenshot, state.currentCode, state.currentSvelte, lastCritique);
 
       // Persist epoch artifacts to disk
-      await Promise.all([
+      const saves: Promise<unknown>[] = [
         saveImage(`epoch${epochNum}_render.jpg`, lastEpochScreenshot),
         saveText(`epoch${epochNum}_component.svelte`, state.currentSvelte),
         saveText(`epoch${epochNum}_preview.html`, state.currentCode),
         saveText(`epoch${epochNum}_critique.json`, JSON.stringify(lastCritique, null, 2)),
         saveText(`epoch${epochNum}_gen_response.txt`, genRes.content),
         saveText(`epoch${epochNum}_critic_response.txt`, critRes.content),
-      ]);
+      ];
+      if (mode === 'decompose' && state.currentDecompose) {
+        saves.push(saveText(`epoch${epochNum}_layers.json`, JSON.stringify(state.currentDecompose, null, 2)));
+      }
+      await Promise.all(saves);
 
       // Allow human feedback in between epochs
       ($('feedbackBtn') as HTMLButtonElement).disabled = false;

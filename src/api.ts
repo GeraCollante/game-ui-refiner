@@ -286,6 +286,59 @@ export function buildRefineMessages(
   ];
 }
 
+// =====================================================================
+// Decompose-mode message builders
+// =====================================================================
+
+export function buildInitialDecomposeMessages(sysPrompt: string, targetUrl: string): ChatMessage[] {
+  return [
+    { role: 'system', content: sysPrompt },
+    {
+      role: 'user',
+      content: [
+        {
+          type: 'text',
+          text: 'Esta es la imagen TARGET de un botón. Descomponelo en CAPAS animables y devolvé EXACTAMENTE un único bloque ```json``` con el schema indicado. Pensá: ¿qué va al fondo? ¿qué efectos van encima? ¿qué cambia en hover/press?',
+        },
+        { type: 'image_url', image_url: { url: targetUrl } },
+      ],
+    },
+  ];
+}
+
+export function buildRefineDecomposeMessages(
+  sysPrompt: string,
+  targetUrl: string,
+  currentRenderUrl: string | null,
+  prevDecomposeJson: string,
+  critique: any
+): ChatMessage[] {
+  const userContent: MessagePart[] = [
+    {
+      type: 'text',
+      text: 'IMAGEN 1: TARGET. IMAGEN 2: render del botón compilado a partir de tu JSON previo. Un crítico ya identificó los problemas en el JSON de abajo. Aplicá los fix_priorities y devolvé un JSON MEJORADO con el mismo schema. Recordá: UN solo bloque ```json```, nada más.',
+    },
+    { type: 'image_url', image_url: { url: targetUrl } },
+  ];
+  if (currentRenderUrl) {
+    userContent.push({ type: 'image_url', image_url: { url: currentRenderUrl } });
+  }
+  userContent.push({
+    type: 'text',
+    text:
+      '\nCRÍTICA del experto:\n```json\n' +
+      JSON.stringify(critique, null, 2) +
+      '\n```' +
+      '\n\nDecomposición previa:\n```json\n' +
+      prevDecomposeJson +
+      '\n```',
+  });
+  return [
+    { role: 'system', content: sysPrompt },
+    { role: 'user', content: userContent },
+  ];
+}
+
 export function buildFeedbackMessages(
   sysPrompt: string,
   targetUrl: string,

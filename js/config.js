@@ -131,6 +131,109 @@ export const DIM_COLORS = {
     spacing_alignment: { c: '#facc15', short: 'space' },
     visual_completeness: { c: '#c084fc', short: 'compl' },
 };
+/** Extra dimension only used in decompose mode. */
+export const DECOMPOSE_DIM = {
+    decomposition: { c: '#fb923c', short: 'decmp' },
+};
+// =====================================================================
+// Default system prompts for decompose mode
+// =====================================================================
+export const DEFAULT_DECOMPOSE_GEN_PROMPT = `CRITICAL OUTPUT FORMAT: tu respuesta entera DEBE consistir EXACTAMENTE en un único bloque markdown \`\`\`json …\`\`\` y NADA más. Sin prosa antes, sin explicación después, sin chain-of-thought. Cualquier carácter fuera del fence corrompe el parser.
+
+ROL: sos un experto descomponiendo botones de game UI en CAPAS animables. NO generás un .svelte monolítico — devolvés un schema JSON de capas que después un compilador determinístico convierte a Svelte+CSS.
+
+SCHEMA EXACTO:
+{
+  "width": 220,
+  "height": 72,
+  "layers": [
+    {
+      "name": "shadow",
+      "role": "shadow",
+      "css": "filter: blur(6px); background: radial-gradient(...); opacity:.6;"
+    },
+    {
+      "name": "base",
+      "role": "plate",
+      "css": "background: linear-gradient(...); border-radius: 12px; box-shadow: inset 0 2px 0 #fff5, inset 0 -3px 0 #0006;"
+    },
+    {
+      "name": "border",
+      "role": "frame",
+      "css": "border: 2px solid #c08040; border-radius: 12px; box-shadow: 0 0 0 1px #000;",
+      "ninepatch": { "top": 8, "right": 8, "bottom": 8, "left": 8 }
+    },
+    {
+      "name": "glow",
+      "role": "fx",
+      "css": "background: radial-gradient(ellipse at center, #ffd97755, transparent 60%); mix-blend-mode: screen;",
+      "animations": [
+        {
+          "name": "idle-pulse",
+          "trigger": "always",
+          "keyframes": "0%,100% { opacity:.5 } 50% { opacity:1 }",
+          "duration": "1.6s",
+          "iteration": "infinite"
+        }
+      ]
+    },
+    {
+      "name": "icon",
+      "role": "content",
+      "svg": "<svg viewBox='0 0 24 24' fill='#fff'><path d='...'/></svg>",
+      "css": "display:flex; align-items:center; justify-content:center;"
+    },
+    {
+      "name": "label",
+      "role": "content",
+      "text": "ATTACK",
+      "css": "display:flex; align-items:center; justify-content:center; font-family: 'Arial Black', sans-serif; color:#fff; text-shadow: 0 2px 0 #000;"
+    }
+  ],
+  "states": [
+    { "name": "idle" },
+    { "name": "hover", "overrides": { "glow": "opacity:1; filter: brightness(1.2);" } },
+    { "name": "press", "overrides": { "base": "transform: translateY(2px);", "shadow": "opacity:.3;" } },
+    { "name": "disabled", "overrides": { "base": "filter: grayscale(1) brightness(.6);" } }
+  ]
+}
+
+REGLAS DURAS:
+1. Layers van apilados por orden (índice 0 = atrás, último = frente). z-index automático.
+2. Cada layer.css es un body CSS plano (sin selector ni llaves). El compilador lo inyecta en \`.layer-{name} { … }\`.
+3. Cada layer ocupa todo el botón por default (position:absolute; inset:0). Si querés posicionarlo, usá márgenes/padding/transform en css.
+4. NO uses imágenes externas. SVG inline o gradientes/box-shadow CSS solamente.
+5. Cada animation.keyframes es un body de @keyframes (los stops adentro), sin la palabra @keyframes ni el nombre.
+6. SIEMPRE incluí al menos el state "idle". Los demás (hover/press/disabled) son opcionales pero recomendados.
+7. PENSÁ en SEPARABILIDAD: si oculto la capa "glow" sola, las demás tienen que seguir teniendo sentido visual. NO mezcles efectos en la capa base.
+8. Roles válidos: plate (placa de fondo), frame (borde/marco), fx (efectos: glow/particles/highlights), content (icono/texto), shadow (sombras externas).
+
+CONTENIDO: replicá la imagen TARGET con máxima fidelidad usando esta descomposición. Pensá: ¿qué capa va atrás? ¿cuál encima? ¿qué partes deberían animarse? ¿qué cambia en hover/press?`;
+export const DEFAULT_DECOMPOSE_CRITIC_PROMPT = `Sos crítico estricto de UI animable. Compará TARGET vs RENDER del botón compilado y devolvé SOLO un objeto JSON válido (sin markdown, sin prosa) con este schema EXACTO:
+
+{
+  "scores": {
+    "structural_fidelity": 0-10,
+    "color_consistency": 0-10,
+    "typography": 0-10,
+    "spacing_alignment": 0-10,
+    "visual_completeness": 0-10,
+    "decomposition": 0-10
+  },
+  "overall": 0-10,
+  "top_issues": [
+    {"dimension":"color|layout|typography|spacing|completeness|decomposition","severity":"high|medium|low","description":"texto breve y accionable"}
+  ],
+  "fix_priorities": ["fix1","fix2","fix3"]
+}
+
+La nueva dimensión "decomposition" mide:
+- ¿Las capas son SEPARABLES? (al ocultar una, las demás siguen teniendo sentido)
+- ¿Las animaciones declaradas TIENEN SENTIDO en su capa? (un border no debería pulsar, un glow sí)
+- ¿FALTAN capas obvias del target? (hay partículas en el target pero no en el JSON → bajá el score)
+- ¿Los roles están BIEN ASIGNADOS? (no metas glow en una capa "plate")
+
+Sé honesto: si la decomposición es plana (todo metido en una sola capa "base") poné decomposition ≤ 4.`;
 // =====================================================================
 // Provider helpers (read DOM at call time for live state)
 // =====================================================================

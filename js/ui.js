@@ -3,7 +3,7 @@
  * dropdowns, prompt panel, etc. Everything that touches the DOM beyond
  * the screenshot/render helpers in api.ts.
  */
-import { currentProvider, getModels, OPTIONS_BY_PROVIDER, PRESETS_BY_PROVIDER, PRESET_LABELS, DIM_COLORS, } from './config.js';
+import { currentProvider, getModels, OPTIONS_BY_PROVIDER, PRESETS_BY_PROVIDER, PRESET_LABELS, DIM_COLORS, DECOMPOSE_DIM, } from './config.js';
 import { state, MAX_LOG_ENTRIES, MAX_HISTORY_THUMBS } from './state.js';
 import { parseSvelteParts, clamp01_10 } from './parser.js';
 // =====================================================================
@@ -108,7 +108,7 @@ export function setTab(name) {
     });
     document.querySelectorAll('.tab-pane').forEach((pane) => pane.classList.add('hidden'));
     $('pane' + name.charAt(0).toUpperCase() + name.slice(1)).classList.remove('hidden');
-    $('copyBtn').classList.toggle('hidden', !['svelte', 'css', 'js', 'html', 'prompts'].includes(name));
+    $('copyBtn').classList.toggle('hidden', !['svelte', 'css', 'js', 'html', 'prompts', 'layers'].includes(name));
     $('downloadLogs').classList.toggle('hidden', name !== 'logs');
     if (name === 'prompts' && state.promptsDirty) {
         refreshPromptsPane(true);
@@ -125,6 +125,26 @@ export function updateCodePanes(svelte, html) {
     $('paneHtml').textContent = html || '— vacío —';
     $('paneCss').textContent = state.currentCss || '— sin <style> en el svelte —';
     $('paneJs').textContent = state.currentJs || '— sin <script> en el svelte —';
+}
+// =====================================================================
+// Layers pane (decompose mode)
+// =====================================================================
+/** Render the current decompose JSON into the editable textarea. */
+export function updateLayersPane(d) {
+    const ta = document.getElementById('layersJsonEditor');
+    const meta = document.getElementById('layersMeta');
+    if (!ta)
+        return;
+    if (!d) {
+        ta.value = '';
+        if (meta)
+            meta.textContent = '— sin decomposición todavía —';
+        return;
+    }
+    ta.value = JSON.stringify(d, null, 2);
+    if (meta) {
+        meta.textContent = `${d.layers.length} layers · ${d.states.length} states · ${(d.width || 220)}×${(d.height || 72)}`;
+    }
 }
 // =====================================================================
 // Prompts pane (lazy DOM rebuild — only when activeTab === 'prompts')
@@ -249,9 +269,12 @@ export function drawChart() {
     for (let i = 0; i < n; i++) {
         svg.insertAdjacentHTML('beforeend', `<text x="${xFor(i)}" y="${H - 8}" fill="#737373" font-size="9" text-anchor="middle" font-family="monospace">e${i + 1}</text>`);
     }
-    // Plot each dimension
+    // Plot each dimension (5 holistic + 1 extra in decompose mode)
+    const dimsToPlot = { ...DIM_COLORS };
+    if (state.mode === 'decompose')
+        Object.assign(dimsToPlot, DECOMPOSE_DIM);
     let legendIdx = 0;
-    for (const [dim, info] of Object.entries(DIM_COLORS)) {
+    for (const [dim, info] of Object.entries(dimsToPlot)) {
         const color = info.c;
         const segs = [];
         let cur = [];
@@ -419,6 +442,8 @@ export function resetMeters() {
     $('panePrompts').textContent = '— sin prompts todavía —';
     $('paneLogs').innerHTML = '';
     $('critiqueOverall').textContent = '';
+    state.currentDecompose = null;
+    updateLayersPane(null);
 }
 // =====================================================================
 // Save to disk via /save endpoint of serve.py

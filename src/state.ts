@@ -5,7 +5,7 @@
  * other module imports from here, but state.ts itself imports nothing.
  */
 
-import type { LastPrompts, LastResponses, LogEntry, ScoreEntry } from './types.js';
+import type { DecomposeOutput, LastPrompts, LastResponses, LogEntry, RefinerMode, ScoreEntry } from './types.js';
 
 // =====================================================================
 // Memory caps (prevent unbounded DOM/memory growth across long runs)
@@ -50,6 +50,11 @@ export const state = {
   tickerInterval: null as ReturnType<typeof setInterval> | null,
   /** True when lastPrompts/lastResponses changed but the Prompts pane wasn't rebuilt. */
   promptsDirty: false as boolean,
+
+  /** Active mode (holistic = original Svelte loop; decompose = layered JSON loop). */
+  mode: 'holistic' as RefinerMode,
+  /** Last successfully-parsed decompose JSON for the active session. */
+  currentDecompose: null as DecomposeOutput | null,
 };
 
 /** Reset all per-run accumulators (called by runRefinement at start). */

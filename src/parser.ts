@@ -7,7 +7,7 @@
  * indented markdown fences, missing language tags, and truncation.
  */
 
-import type { ParsedDualOutput, SvelteParts } from './types.js';
+import type { DecomposeOutput, ParsedDecompose, ParsedDualOutput, SvelteParts } from './types.js';
 
 /**
  * Strip a single markdown code fence from `text`.
@@ -193,6 +193,105 @@ export function extractJson(text: string): unknown | null {
     try { return JSON.parse(m[0]); } catch { /* ignore */ }
   }
   return null;
+}
+
+/**
+ * Parse a decompose-mode generator response into a validated `DecomposeOutput`.
+ *
+ * Strategies in cascade (mirror parseDualOutput):
+ *   1. Direct JSON.parse on the raw text
+ *   2. ```json fence
+ *   3. Any unlabeled fence whose body parses
+ *   4. Greedy {…} regex fallback
+ *
+ * Then validates the minimum shape: `layers` array, each with `name` + `role`.
+ * If `states` is missing, synthesizes `[{name:'idle'}]`.
+ */
+export function parseDecomposeJson(text: string): ParsedDecompose {
+  if (!text) return { data: null, parserNotes: ['empty input'] };
+  const notes: string[] = [];
+
+  let raw: any = null;
+  // 1. raw
+  try { raw = JSON.parse(text.trim()); notes.push('decompose: raw JSON.parse OK'); } catch { /* */ }
+
+  // 2. fences
+  if (!raw) {
+    const fences = extractAllFences(text);
+    for (const f of fences) {
+      if (raw) break;
+      if (f.lang === 'json' || !f.lang) {
+        try {
+          raw = JSON.parse(f.body.trim());
+          notes.push(`decompose: parsed from ${f.lang || 'unlabeled'} fence`);
+        } catch { /* try next */ }
+      }
+    }
+  }
+
+  // 3. greedy {…} fallback
+  if (!raw) {
+    const m = text.match(/\{[\s\S]*\}/);
+    if (m) {
+      try {
+        raw = JSON.parse(m[0]);
+        notes.push('decompose: greedy {…} fallback parsed');
+      } catch { /* */ }
+    }
+  }
+
+  if (!raw || typeof raw !== 'object') {
+    notes.push('FAIL: no parseable JSON found');
+    return { data: null, parserNotes: notes };
+  }
+  if (!Array.isArray(raw.layers) || raw.layers.length === 0) {
+    notes.push('FAIL: missing or empty `layers` array');
+    return { data: null, parserNotes: notes };
+  }
+
+  // Validate every layer has name + role
+  const layers: any[] = [];
+  for (let i = 0; i < raw.layers.length; i++) {
+    const l = raw.layers[i];
+    if (!l || typeof l !== 'object') {
+      notes.push(`⚠️ layer[${i}] not an object — skipped`);
+      continue;
+    }
+    if (!l.name || typeof l.name !== 'string') {
+      notes.push(`⚠️ layer[${i}] missing name — skipped`);
+      continue;
+    }
+    if (!l.role || typeof l.role !== 'string') {
+      notes.push(`⚠️ layer[${i}] (${l.name}) missing role — defaulting to "content"`);
+      l.role = 'content';
+    }
+    if (typeof l.css !== 'string') l.css = '';
+    if (l.animations && !Array.isArray(l.animations)) {
+      notes.push(`⚠️ layer[${l.name}].animations not an array — dropped`);
+      delete l.animations;
+    }
+    layers.push(l);
+  }
+  if (layers.length === 0) {
+    notes.push('FAIL: 0 valid layers after validation');
+    return { data: null, parserNotes: notes };
+  }
+
+  let states: any[] = Array.isArray(raw.states) ? raw.states.filter((s: any) => s && s.name) : [];
+  if (states.length === 0) {
+    states = [{ name: 'idle' }];
+    notes.push('decompose: synthesized default state "idle"');
+  }
+
+  const data: DecomposeOutput = {
+    layers,
+    states,
+    width: typeof raw.width === 'number' ? raw.width : undefined,
+    height: typeof raw.height === 'number' ? raw.height : undefined,
+  };
+
+  notes.push(`decompose: ${layers.length} layers, ${states.length} states`);
+  return { data, parserNotes: notes };
 }
 
 /** Clamp a value to [0, 10] for the score chart. Returns null on null/NaN. */

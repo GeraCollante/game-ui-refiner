@@ -11,10 +11,11 @@ import {
   PRESETS_BY_PROVIDER,
   PRESET_LABELS,
   DIM_COLORS,
+  DECOMPOSE_DIM,
 } from './config.js';
 import { state, MAX_LOG_ENTRIES, MAX_HISTORY_THUMBS } from './state.js';
 import { parseSvelteParts, clamp01_10 } from './parser.js';
-import type { ChatMessage, Critique, LogEntry } from './types.js';
+import type { ChatMessage, Critique, DecomposeOutput, LogEntry } from './types.js';
 
 // =====================================================================
 // Generic DOM helpers
@@ -128,7 +129,7 @@ export function setTab(name: string): void {
   });
   document.querySelectorAll('.tab-pane').forEach((pane) => pane.classList.add('hidden'));
   $('pane' + name.charAt(0).toUpperCase() + name.slice(1)).classList.remove('hidden');
-  $('copyBtn').classList.toggle('hidden', !['svelte', 'css', 'js', 'html', 'prompts'].includes(name));
+  $('copyBtn').classList.toggle('hidden', !['svelte', 'css', 'js', 'html', 'prompts', 'layers'].includes(name));
   $('downloadLogs').classList.toggle('hidden', name !== 'logs');
   if (name === 'prompts' && state.promptsDirty) {
     refreshPromptsPane(true);
@@ -147,6 +148,26 @@ export function updateCodePanes(svelte: string | null, html: string | null): voi
   $('paneHtml').textContent = html || '— vacío —';
   $('paneCss').textContent = state.currentCss || '— sin <style> en el svelte —';
   $('paneJs').textContent = state.currentJs || '— sin <script> en el svelte —';
+}
+
+// =====================================================================
+// Layers pane (decompose mode)
+// =====================================================================
+
+/** Render the current decompose JSON into the editable textarea. */
+export function updateLayersPane(d: DecomposeOutput | null): void {
+  const ta = document.getElementById('layersJsonEditor') as HTMLTextAreaElement | null;
+  const meta = document.getElementById('layersMeta');
+  if (!ta) return;
+  if (!d) {
+    ta.value = '';
+    if (meta) meta.textContent = '— sin decomposición todavía —';
+    return;
+  }
+  ta.value = JSON.stringify(d, null, 2);
+  if (meta) {
+    meta.textContent = `${d.layers.length} layers · ${d.states.length} states · ${(d.width || 220)}×${(d.height || 72)}`;
+  }
 }
 
 // =====================================================================
@@ -311,9 +332,11 @@ export function drawChart(): void {
     );
   }
 
-  // Plot each dimension
+  // Plot each dimension (5 holistic + 1 extra in decompose mode)
+  const dimsToPlot: Record<string, { c: string; short: string }> = { ...DIM_COLORS };
+  if (state.mode === 'decompose') Object.assign(dimsToPlot, DECOMPOSE_DIM);
   let legendIdx = 0;
-  for (const [dim, info] of Object.entries(DIM_COLORS)) {
+  for (const [dim, info] of Object.entries(dimsToPlot)) {
     const color = info.c;
     const segs: string[][] = [];
     let cur: string[] = [];
@@ -512,6 +535,8 @@ export function resetMeters(): void {
   $('panePrompts').textContent = '— sin prompts todavía —';
   $('paneLogs').innerHTML = '';
   $('critiqueOverall').textContent = '';
+  state.currentDecompose = null;
+  updateLayersPane(null);
 }
 
 // =====================================================================

@@ -41,6 +41,10 @@ export const state = {
     tickerInterval: null,
     /** True when lastPrompts/lastResponses changed but the Prompts pane wasn't rebuilt. */
     promptsDirty: false,
+    /** Active mode (holistic = original Svelte loop; decompose = layered JSON loop). */
+    mode: 'holistic',
+    /** Last successfully-parsed decompose JSON for the active session. */
+    currentDecompose: null,
 };
 /** Reset all per-run accumulators (called by runRefinement at start). */
 export function resetState() {

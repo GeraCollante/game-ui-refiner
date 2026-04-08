@@ -263,10 +263,38 @@ export function buildInitialDecomposeMessages(sysPrompt, targetUrl) {
     ];
 }
 export function buildRefineDecomposeMessages(sysPrompt, targetUrl, currentRenderUrl, prevDecomposeJson, critique) {
+    // Surface the prev fix_priorities at the top so the model literally cannot miss them.
+    const fixList = Array.isArray(critique?.fix_priorities) ? critique.fix_priorities : [];
+    const issuesList = Array.isArray(critique?.top_issues) ? critique.top_issues : [];
+    const ignoredCount = Array.isArray(critique?.ignored_prev_priorities) ? critique.ignored_prev_priorities.length : 0;
+    const fixBlock = fixList.length
+        ? '🔴 FIX_PRIORITIES OBLIGATORIOS (en orden — cada uno que ignores es -1 al overall del próximo epoch):\n' +
+            fixList.map((f, i) => `  ${i + 1}. ${f}`).join('\n') +
+            '\n'
+        : '';
+    const issuesBlock = issuesList.length
+        ? '\nIssues identificados:\n' +
+            issuesList
+                .map((it) => `  • [${it.severity || '?'}/${it.dimension || '?'}] ${it.description || ''}`)
+                .join('\n') +
+            '\n'
+        : '';
+    const regressionWarning = critique?.regression
+        ? '\n⚠️ REGRESIÓN DETECTADA en el epoch anterior — no rompas más cosas.\n'
+        : '';
+    const ignoredWarning = ignoredCount > 0
+        ? `\n⚠️ EL EPOCH ANTERIOR IGNORÓ ${ignoredCount} fix_priorities. NO LO REPITAS.\n`
+        : '';
     const userContent = [
         {
             type: 'text',
-            text: 'IMAGEN 1: TARGET. IMAGEN 2: render del botón compilado a partir de tu JSON previo. Un crítico ya identificó los problemas en el JSON de abajo. Aplicá los fix_priorities y devolvé un JSON MEJORADO con el mismo schema. Recordá: UN solo bloque ```json```, nada más.',
+            text: 'IMAGEN 1: TARGET. IMAGEN 2: render actual del botón compilado desde tu JSON previo.\n' +
+                'Tu trabajo: aplicar los fix_priorities exactamente, devolver un JSON MEJORADO con el mismo schema, en UN solo bloque ```json```, nada más.\n' +
+                regressionWarning +
+                ignoredWarning +
+                '\n' +
+                fixBlock +
+                issuesBlock,
         },
         { type: 'image_url', image_url: { url: targetUrl } },
     ];
@@ -275,12 +303,13 @@ export function buildRefineDecomposeMessages(sysPrompt, targetUrl, currentRender
     }
     userContent.push({
         type: 'text',
-        text: '\nCRÍTICA del experto:\n```json\n' +
+        text: '\nCRÍTICA COMPLETA del experto (referencia):\n```json\n' +
             JSON.stringify(critique, null, 2) +
             '\n```' +
-            '\n\nDecomposición previa:\n```json\n' +
+            '\n\nDecomposición previa (modificá esta, no la rehagas desde cero):\n```json\n' +
             prevDecomposeJson +
-            '\n```',
+            '\n```' +
+            '\n\nRecordatorio final: el crítico del próximo epoch va a comparar tu output contra los fix_priorities de arriba y va a marcar los que NO aplicaste. Aplicalos TODOS.',
     });
     return [
         { role: 'system', content: sysPrompt },

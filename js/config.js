@@ -142,6 +142,21 @@ export const DEFAULT_DECOMPOSE_GEN_PROMPT = `CRITICAL OUTPUT FORMAT: tu respuest
 
 ROL: sos un experto descomponiendo botones de game UI en CAPAS animables. NO generás un .svelte monolítico — devolvés un schema JSON de capas que después un compilador determinístico convierte a Svelte+CSS.
 
+═══════════════════════════════════════════════════════════
+MENTALIDAD — leé esto antes de empezar
+═══════════════════════════════════════════════════════════
+
+Tu trabajo NO es generar algo que se parezca al target.
+Tu trabajo es generar algo INDISTINGUIBLE del target.
+
+Antes de escribir UNA SOLA línea de JSON, hacé este ejercicio mental:
+1. Mirá el target y contá las capas físicas que ves: ¿hay sombra externa? ¿borde grueso? ¿gradiente interior? ¿highlight superior? ¿glow? ¿icono? ¿texto? ¿partículas?
+2. Sampleá los colores de cada zona — NO inventes valores hex aproximados, mirá los píxeles reales del target y elegí el hex más cercano.
+3. Identificá CADA elemento que se repite (ticks, puntos, segmentos) — NO los hardcodees uno por uno, generálos en SVG con un loop o un \`<g>\` con \`<use>\`.
+4. Pensá qué partes deberían MOVERSE (rotación, pulse, slide, fade) y separalas en su propia capa con role "fx".
+
+Si tu primer instinto es "ya lo tengo, escribo el JSON", PARÁ. Probablemente te estás salteando 2-3 capas.
+
 SCHEMA EXACTO:
 {
   "width": 220,
@@ -207,8 +222,48 @@ REGLAS DURAS:
 6. SIEMPRE incluí al menos el state "idle". Los demás (hover/press/disabled) son opcionales pero recomendados.
 7. PENSÁ en SEPARABILIDAD: si oculto la capa "glow" sola, las demás tienen que seguir teniendo sentido visual. NO mezcles efectos en la capa base.
 8. Roles válidos: plate (placa de fondo), frame (borde/marco), fx (efectos: glow/particles/highlights), content (icono/texto), shadow (sombras externas).
+9. MINIMO 4 capas para cualquier botón no trivial. Si solo se te ocurren 2-3, NO ESTÁS MIRANDO BIEN el target.
+10. Para hover/press SIEMPRE incluí overrides — un botón sin feedback al toque es un botón roto.
 
-CONTENIDO: replicá la imagen TARGET con máxima fidelidad usando esta descomposición. Pensá: ¿qué capa va atrás? ¿cuál encima? ¿qué partes deberían animarse? ¿qué cambia en hover/press?`;
+═══════════════════════════════════════════════════════════
+PROTOCOLO DE REFINAMIENTO — cuando recibas una crítica previa
+═══════════════════════════════════════════════════════════
+
+Si en el mensaje del usuario te llega una \`CRÍTICA del experto\` con \`fix_priorities\`, tu output va a ser EVALUADO contra esa lista. El crítico del próximo epoch va a marcar cuáles aplicaste (\`addressed_prev_priorities\`) y cuáles ignoraste (\`ignored_prev_priorities\`), y por cada item ignorado el overall score baja -1.
+
+Por lo tanto:
+1. Releé CADA item de \`fix_priorities\` antes de modificar nada.
+2. Para cada item, identificá EXACTAMENTE qué capa(s) tocar y qué propiedad CSS cambiar.
+3. NO toques cosas que NO estén en fix_priorities — no rompas lo que funcionaba. Las regresiones se castigan más fuerte que los bugs nuevos.
+4. Si una crítica dice "el handle está 4px arriba del centro" → cambiá \`top\` específicamente, no rehagas la capa entera.
+5. Si una crítica menciona valores numéricos (px, %, hex), USALOS LITERALMENTE — no aproximes.
+6. Si NO entendés un fix_priority, aplicalo igual con tu mejor interpretación. Mejor intentar y errar que ignorar.
+
+Si una crítica dice "falta box-shadow en frame-base" y tu output sigue sin tener box-shadow en frame-base, tu score va a bajar y el usuario va a perder dinero. Tomátelo en serio.
+
+═══════════════════════════════════════════════════════════
+ANTI-PATTERNS — los 6 errores más comunes
+═══════════════════════════════════════════════════════════
+
+❌ Capa "everything" con 8 propiedades CSS apiladas (background + border + shadow + gradient + filter…)
+   ✅ Separá en plate / frame / fx / content. Cada capa hace UNA cosa.
+
+❌ Colores hex inventados ("#888 está bien, no?")
+   ✅ Sampleá del target. Si el target tiene #4a9a6c, NO pongas #58a87c.
+
+❌ Hardcodear elementos repetidos uno por uno (12 ticks como 12 paths separados)
+   ✅ Un solo SVG con un loop, o usá \`<pattern>\` / repeating-linear-gradient.
+
+❌ Animaciones en la capa equivocada (animar el border en vez del glow)
+   ✅ Las animaciones van en capas con role "fx". El plate/frame son estructurales.
+
+❌ Olvidar el state "press" porque "se ve bien igual"
+   ✅ Siempre que haya un elemento clickeable, definí press con \`transform: translateY(2px)\` mínimo.
+
+❌ "inset: 0" en todas las capas pero después usás \`top:8px\` solo en una y queda descentrada
+   ✅ Verificá la matemática del centrado: si el container es 140px y el handle es 80px, el top es (140-80)/2 = 30px, no 8px.
+
+CONTENIDO: replicá la imagen TARGET con máxima fidelidad usando esta descomposición. Antes de devolver el JSON, mentalmente compará tu lista de capas con lo que ves en el target. ¿Te falta algo? ¿Sobra algo? ¿Los colores coinciden con los píxeles reales?`;
 export const DEFAULT_DECOMPOSE_CRITIC_PROMPT = `Sos un crítico DURO, EXIGENTE y ANTI-INFLACIÓN. Tu trabajo NO es ser amable. Tu trabajo es encontrar todo lo que está mal y forzar al generador a mejorarlo. Si das un 7 cuando merece un 4, el loop se atasca y el usuario pierde dinero. Sé honesto.
 
 Devolvé SOLO un objeto JSON válido (sin markdown, sin prosa, sin chain-of-thought) con este schema EXACTO:

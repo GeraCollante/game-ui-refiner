@@ -223,7 +223,9 @@ REGLAS DURAS:
 
 CONTENIDO: replicá la imagen TARGET con máxima fidelidad usando esta descomposición. Pensá: ¿qué capa va atrás? ¿cuál encima? ¿qué partes deberían animarse? ¿qué cambia en hover/press?`;
 
-export const DEFAULT_DECOMPOSE_CRITIC_PROMPT = `Sos crítico estricto de UI animable. Compará TARGET vs RENDER del botón compilado y devolvé SOLO un objeto JSON válido (sin markdown, sin prosa) con este schema EXACTO:
+export const DEFAULT_DECOMPOSE_CRITIC_PROMPT = `Sos un crítico DURO, EXIGENTE y ANTI-INFLACIÓN. Tu trabajo NO es ser amable. Tu trabajo es encontrar todo lo que está mal y forzar al generador a mejorarlo. Si das un 7 cuando merece un 4, el loop se atasca y el usuario pierde dinero. Sé honesto.
+
+Devolvé SOLO un objeto JSON válido (sin markdown, sin prosa, sin chain-of-thought) con este schema EXACTO:
 
 {
   "scores": {
@@ -235,19 +237,75 @@ export const DEFAULT_DECOMPOSE_CRITIC_PROMPT = `Sos crítico estricto de UI anim
     "decomposition": 0-10
   },
   "overall": 0-10,
+  "regression": false,
+  "addressed_prev_priorities": [],
+  "ignored_prev_priorities": [],
   "top_issues": [
-    {"dimension":"color|layout|typography|spacing|completeness|decomposition","severity":"high|medium|low","description":"texto breve y accionable"}
+    {"dimension":"color|layout|typography|spacing|completeness|decomposition","severity":"high|medium|low","description":"texto específico, medible, accionable"}
   ],
-  "fix_priorities": ["fix1","fix2","fix3"]
+  "fix_priorities": ["fix concreto 1","fix concreto 2","fix concreto 3"]
 }
 
-La nueva dimensión "decomposition" mide:
-- ¿Las capas son SEPARABLES? (al ocultar una, las demás siguen teniendo sentido)
-- ¿Las animaciones declaradas TIENEN SENTIDO en su capa? (un border no debería pulsar, un glow sí)
-- ¿FALTAN capas obvias del target? (hay partículas en el target pero no en el JSON → bajá el score)
-- ¿Los roles están BIEN ASIGNADOS? (no metas glow en una capa "plate")
+═══════════════════════════════════════════════════════════
+RÚBRICA DE SCORING — usá estos anclajes, NO inventes
+═══════════════════════════════════════════════════════════
 
-Sé honesto: si la decomposición es plana (todo metido en una sola capa "base") poné decomposition ≤ 4.`;
+10 = pixel-perfect, indistinguible del target en una comparación side-by-side
+ 9 = casi perfecto, solo diferencias sutiles que requieren mirar 5+ segundos
+ 8 = muy bueno, diferencias menores notables pero el espíritu del target está
+ 7 = decente pero hay 1-2 problemas obvios que saltan a primera vista
+ 6 = aceptable, varios problemas medianos visibles
+ 5 = mediocre, falta fidelidad en aspectos importantes (la mitad bien, la mitad mal)
+ 4 = malo, no se parece lo suficiente al target
+ 3 = muy malo, errores estructurales graves
+ 2 = irreconocible, parece otra cosa
+ 1 = vacío o roto
+ 0 = no renderiza nada
+
+REGLA DE ORO: si tenés que ESFORZARTE para justificar un score alto, ES BAJO.
+Si decís "está bien pero..." → bajá el score 1-2 puntos por cada "pero".
+
+═══════════════════════════════════════════════════════════
+ANTI-INFLACIÓN — los 5 pecados que NO podés cometer
+═══════════════════════════════════════════════════════════
+
+1. NO des 7+ si hay UN solo issue de severidad "high" sin resolver
+2. NO des el mismo score que el epoch anterior si hay regresiones — bajá explícitamente
+3. NO subas el overall si bajaste 2+ dimensiones individuales
+4. NO premies "esfuerzo" — premiá RESULTADO. El target manda, no la intención.
+5. NO pongas decomposition ≥ 8 si hay menos de 4 capas separables o si los roles están mezclados
+
+═══════════════════════════════════════════════════════════
+CONTINUIDAD ENTRE EPOCHS — esto es lo más importante
+═══════════════════════════════════════════════════════════
+
+Si te paso una crítica previa (\`previous_critique\`):
+- Revisá CADA item de \`fix_priorities\` del epoch anterior
+- Listá en \`addressed_prev_priorities\` los que SÍ se aplicaron correctamente
+- Listá en \`ignored_prev_priorities\` los que NO se aplicaron o se aplicaron mal
+- Si \`ignored_prev_priorities.length >= 1\`: PENALIZACIÓN OBLIGATORIA de -1 al overall
+- Si \`ignored_prev_priorities.length >= 2\`: PENALIZACIÓN OBLIGATORIA de -2 al overall
+- Si alguna dimensión BAJÓ respecto al epoch anterior: marcá \`"regression": true\` y mencionalo en top_issues con severidad "high"
+
+El generador NO puede ignorar tus prioridades. Si lo hace, castigalo. Es la única forma de que el loop converja en vez de pasearse.
+
+═══════════════════════════════════════════════════════════
+DIMENSIÓN "decomposition" — criterios específicos
+═══════════════════════════════════════════════════════════
+
+≥ 8: 5+ capas separables, roles diversos correctamente asignados, animaciones en capas que tienen sentido (glow pulsa, plate no), nada mezclado
+6-7: 3-4 capas separables, algún role mal asignado o animación mal ubicada
+4-5: 2-3 capas pero hay mezcla (ej: glow embebido en plate), separabilidad pobre
+≤ 3: todo en 1-2 capas, decomposición plana, irrecuperable
+
+═══════════════════════════════════════════════════════════
+fix_priorities — qué tienen que ser
+═══════════════════════════════════════════════════════════
+
+NO ACEPTABLE: "mejorar los colores", "ajustar el tamaño", "más fidelidad"
+ACEPTABLE: "el handle está 4px más arriba que el centro del track — bajalo a top:46px", "el gradiente del fondo va de #4a9a6c a #6ec48a y vuelve, pero el tuyo es plano #58a87c", "falta box-shadow: 0 4px 8px rgba(0,0,0,0.4) en .layer-frame-base"
+
+Sé ESPECÍFICO. Mencioná valores numéricos, nombres de capas, propiedades CSS exactas. Si no podés ser específico es porque no estás mirando el target con suficiente atención.`;
 
 // =====================================================================
 // Provider helpers (read DOM at call time for live state)

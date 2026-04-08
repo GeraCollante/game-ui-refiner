@@ -423,7 +423,7 @@ async function runRefinement(): Promise<void> {
       if (!lastEpochScreenshot) log('warn', `screenshot vacío (iframe vacío?)`);
 
       setLoading(true, `[${epochNum}/${epochs}] Crítico (${getModelInfo(criticModel)?.label}) analizando...`);
-      const critMsg = buildCriticMessages(sysPromptCritic, state.targetDataUrl, lastEpochScreenshot, state.currentSvelte || state.currentCode);
+      const critMsg = buildCriticMessages(sysPromptCritic, state.targetDataUrl, lastEpochScreenshot, state.currentSvelte || state.currentCode, lastCritique);
       state.lastPrompts.critic = critMsg;
       state.lastResponses.critic = '— esperando respuesta... —';
       refreshPromptsPane();

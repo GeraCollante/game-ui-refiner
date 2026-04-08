@@ -185,7 +185,7 @@ export function buildInitialGenMessages(sysPrompt, targetUrl) {
         },
     ];
 }
-export function buildCriticMessages(sysPrompt, targetUrl, currentRenderUrl, currentCode) {
+export function buildCriticMessages(sysPrompt, targetUrl, currentRenderUrl, currentCode, prevCritique = null) {
     const userContent = [
         {
             type: 'text',
@@ -200,6 +200,17 @@ export function buildCriticMessages(sysPrompt, targetUrl, currentRenderUrl, curr
         userContent.push({ type: 'text', text: '(no se pudo capturar el render actual; juzgá basándote en el código previo)' });
     }
     userContent.push({ type: 'text', text: '\nCódigo actual:\n```html\n' + currentCode + '\n```' });
+    if (prevCritique && !prevCritique.error) {
+        userContent.push({
+            type: 'text',
+            text: '\n══════════════════════════════════════\n' +
+                'CRÍTICA DEL EPOCH ANTERIOR (úsala para juzgar continuidad):\n' +
+                '```json\n' +
+                JSON.stringify(prevCritique, null, 2) +
+                '\n```\n' +
+                'OBLIGATORIO: revisá CADA item de su `fix_priorities` y reportá en `addressed_prev_priorities` / `ignored_prev_priorities` qué se aplicó. Si hay ignored, aplicá la penalización al overall según la rúbrica.',
+        });
+    }
     return [
         { role: 'system', content: sysPrompt },
         { role: 'user', content: userContent },
